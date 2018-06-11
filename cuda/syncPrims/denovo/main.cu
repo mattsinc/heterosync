@@ -1604,8 +1604,7 @@ int main(int argc, char ** argv)
   */
 
   // *4 to provide some extra space
-  // multiply number of mutexes, semaphores, condition variable by NUM_SM to
-  // allow per-core locks
+  // multiply number of mutexes, semaphores by NUM_SM to allow per-core locks
   cudaLocksInit(MAX_BLOCKS*4, 8 * NUM_SM, 24 * NUM_SM, 1 * NUM_SM, pageAlign/*,
                 locksReg*/);
 
@@ -1636,8 +1635,8 @@ int main(int argc, char ** argv)
   // The non-unique semaphores have 1 writer and numTBs_perSM - 1 readers per SM
   // so the multiplier is numTBs_perSM
   else if ((syncPrim >= 8) && (syncPrim <= 19)) { numLocsMult = numTBs_perSM; }
-  // For the unique mutex microbenchmarks and condition variable, all TBs on
-  // same SM access same data so multiplier is NUM_SM.
+  // For the unique mutex microbenchmarks, all TBs on same SM access same data
+  // so multiplier is NUM_SM.
   else if (((syncPrim >= 20) && (syncPrim <= 23)) ||
            (syncPrim == 36)) { numLocsMult = ((numTBs < NUM_SM) ? numTBs : NUM_SM); }
   else { // should never reach here

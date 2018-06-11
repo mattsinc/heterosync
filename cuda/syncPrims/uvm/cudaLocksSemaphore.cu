@@ -4,6 +4,5 @@
 #include "cudaLocks.h"
 #include "cudaLocksSemaphoreSpin.cu"
 #include "cudaLocksSemaphoreEBO.cu"
-#include "cudaLocksSemaphoreSleep.cu"
 
 #endif

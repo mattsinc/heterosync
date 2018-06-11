@@ -1,7 +1,7 @@
 #include "cudaLocks.h"
 
 cudaError_t cudaLocksInit(const int maxBlocksPerKernel, const int numMutexes,
-                          const int numSemaphores, const int numConditionVariables,
+                          const int numSemaphores, const bool pageAlign,
                           const int NUM_SM)
 {
   cudaError_t cudaErr = cudaGetLastError();
@@ -12,14 +12,12 @@ cudaError_t cudaLocksInit(const int maxBlocksPerKernel, const int numMutexes,
   if (maxBlocksPerKernel <= 0)    return cudaErrorInitializationError;
   if (numMutexes <= 0)            return cudaErrorInitializationError;
   if (numSemaphores <= 0)         return cudaErrorInitializationError;
-  if (numConditionVariables <= 0) return cudaErrorInitializationError;
 
   // initialize some of the lock data's values
   cpuLockData->maxBufferSize          = maxBlocksPerKernel;
   cpuLockData->arrayStride            = (maxBlocksPerKernel + NUM_SM) / 16 * 16;
   cpuLockData->mutexCount             = numMutexes;
   cpuLockData->semaphoreCount         = numSemaphores;
-  cpuLockData->conditionVariableCount = numConditionVariables;
 
   cudaMalloc(&cpuLockData->barrierBuffers,   sizeof(unsigned int) * cpuLockData->arrayStride * 2);
 
@@ -28,11 +26,6 @@ cudaError_t cudaLocksInit(const int maxBlocksPerKernel, const int numMutexes,
   cudaMalloc(&cpuLockData->mutexBufferTails, sizeof(unsigned int) * cpuLockData->mutexCount);
 
   cudaMalloc(&cpuLockData->semaphoreBuffers, sizeof(unsigned int) * 4 * cpuLockData->semaphoreCount);
-
-  cudaMalloc(&cpuLockData->conditionVariableBuffers,     sizeof(int) * cpuLockData->arrayStride * cpuLockData->conditionVariableCount);
-  cudaMalloc(&cpuLockData->conditionVariableWaitBuffers, sizeof(int) * cpuLockData->arrayStride * cpuLockData->conditionVariableCount);
-  cudaMalloc(&cpuLockData->conditionVariableBufferHeads, sizeof(unsigned int) * cpuLockData->conditionVariableCount);
-  cudaMalloc(&cpuLockData->conditionVariableBufferTails, sizeof(unsigned int) * cpuLockData->conditionVariableCount);
 
   cudaEvent_t start, end;
   cudaEventCreate(&start);
@@ -79,10 +72,6 @@ cudaError_t cudaLocksInit(const int maxBlocksPerKernel, const int numMutexes,
 
   cudaMemset(cpuLockData->semaphoreBuffers, 0, sizeof(unsigned int) * cpuLockData->semaphoreCount * 4);
 
-  cudaMemset(cpuLockData->conditionVariableBufferHeads, 0, sizeof(unsigned int) * cpuLockData->conditionVariableCount);
-  cudaMemset(cpuLockData->conditionVariableBufferTails, 0, sizeof(unsigned int) * cpuLockData->conditionVariableCount);
-  cudaMemset(cpuLockData->conditionVariableWaitBuffers, 0, sizeof(int) * cpuLockData->arrayStride * cpuLockData->conditionVariableCount);
-
   cudaThreadSynchronize();
   cudaEventRecord(end, 0);
   cudaEventSynchronize(end);
@@ -105,11 +94,6 @@ cudaError_t cudaLocksDestroy()
   cudaFree(cpuLockData->mutexBufferTails);
 
   cudaFree(cpuLockData->semaphoreBuffers);
-
-  cudaFree(cpuLockData->conditionVariableBuffers);
-  cudaFree(cpuLockData->conditionVariableWaitBuffers);
-  cudaFree(cpuLockData->conditionVariableBufferHeads);
-  cudaFree(cpuLockData->conditionVariableBufferTails);
 
   cudaFreeHost(cpuLockData);
 
