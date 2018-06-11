@@ -290,9 +290,6 @@ __global__ void kernelSleepingMutex(cudaMutex_t mutex, float * storage,
   const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
   __shared__ int myRingBufferLoc; // tracks my TBs location in the ring buffer
   int inLoc = 0, outLoc = 0;
-
-  // ** TEMP: DEBUG ONLY
-  storage[tid] = 9876;
   
   if (threadIdx.x == 0) {
     myRingBufferLoc = -1; // initially I have no location
@@ -1111,7 +1108,6 @@ void invokeSpinLockMutex(cudaMutex_t mutex, float * storage_d, int numIters)
 {
   // local variable
   const int blocks = numTBs;
-  fprintf(stdout, "Launching kernelSpinLockMutex: # TB: %d, # CS iters: %d, # Ld/St: %d, # SM: %d\n", numTBs, numIters, NUM_LDST, NUM_SM); // ** TEMP: DEBUG ONLY
 
   for (int repeat = 0; repeat < NUM_REPEATS; ++repeat)
   {
@@ -1940,14 +1936,6 @@ int main(int argc, char ** argv)
 
   // copy results back to compare to golden
   cudaMemcpy(storage, storage_d, sizeof(float) * numStorageLocs, cudaMemcpyDeviceToHost);
-
-  // ** TEMP: DEBUG ONLY
-  /*
-  fprintf(stdout, "Storage out values:\n");
-  for (int i = 0; i < numStorageLocs; ++i) {
-    fprintf(stdout, "storage[%d] = %f\n", i, storage[i]);
-  }
-  */
 
   cudaEventRecord(end, 0);
   cudaEventSynchronize(end);
