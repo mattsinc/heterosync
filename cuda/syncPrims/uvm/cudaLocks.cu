@@ -1,7 +1,8 @@
 #include "cudaLocks.h"
 
 cudaError_t cudaLocksInit(const int maxBlocksPerKernel, const int numMutexes,
-                          const int numSemaphores, const bool pageAlign,
+                          const int numSemaphores,
+                          const bool pageAlign, /* const region_t locksReg*/
                           const int NUM_SM)
 {
   cudaError_t cudaErr = cudaGetLastError();

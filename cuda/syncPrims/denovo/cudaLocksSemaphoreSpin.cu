@@ -16,10 +16,14 @@ inline __host__ cudaError_t cudaSemaphoreCreateSpin(cudaSemaphore_t * const hand
   unsigned int initialValue = (count + 1);
   *handle = semaphoreNumber;
   for (int id = 0; id < NUM_SM; ++id) { // need to set these values for all SMs
-    cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) + (id * 4))] = initialValue;
-    cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) + (id * 4)) + 1] = 0;
-    cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) + (id * 4)) + 2] = 0;
-    cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) + (id * 4)) + 3] = initialValue;
+    cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) +
+                                   (id * 4))] = initialValue;
+    cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) +
+                                   (id * 4)) + 1] = 0;
+    cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) +
+                                   (id * 4)) + 2] = 0;
+    cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) +
+                                   (id * 4)) + 3] = initialValue;
   }
   return cudaSuccess;
 }

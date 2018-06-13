@@ -5,7 +5,8 @@ void inline checkError(cudaError_t cudaErr, const char * functWithError)
 {
   if ( cudaErr != cudaSuccess )
   {
-    fprintf(stderr, "ERROR %s - %s\n", functWithError, cudaGetErrorString(cudaErr));
+    fprintf(stderr, "ERROR %s - %s\n", functWithError,
+            cudaGetErrorString(cudaErr));
     exit(-1);
   }
 }

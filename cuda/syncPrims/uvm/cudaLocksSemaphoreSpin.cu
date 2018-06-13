@@ -11,7 +11,7 @@ inline __host__ cudaError_t cudaSemaphoreCreateSpin(cudaSemaphore_t * const hand
   // Here we set the initial value to be count+1, this allows us to do an
   // atomicExch(sem, 0) and basically use the semaphore value as both a
   // lock and a semaphore.
-  unsigned int initialValue = (count + 1), zero = 0;
+  unsigned int initialValue = (count + 1), zero = -1;
   *handle = semaphoreNumber;
   for (int id = 0; id < NUM_SM; ++id) { // need to set these values for all SMs
     cudaMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) + (id * 4))]), &initialValue, sizeof(initialValue), cudaMemcpyHostToDevice);

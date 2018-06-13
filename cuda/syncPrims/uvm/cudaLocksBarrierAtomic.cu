@@ -99,8 +99,11 @@ inline __device__ void cudaBarrierAtomicSubLocal(unsigned int * perSMBarr,
     *done = 0;
     // atomicInc acts as a store release, need TF to enforce ordering locally
     __threadfence_block();
-    // atomicInc effectively adds 1 to atomic for each TB that's part of the
-    // barrier.  For the local barrier, this requires using the per-SM locations.
+    /*
+      atomicInc effectively adds 1 to atomic for each TB that's part of the
+      barrier.  For the local barrier, this requires using the per-CU
+      locations.
+    */
     atomicInc(perSMBarr, 0x7FFFFFFF);
   }
   __syncthreads();
@@ -117,7 +120,8 @@ inline __device__ void cudaBarrierAtomicSubLocal(unsigned int * perSMBarr,
         barrier.
       */
       if (atomicCAS(perSMBarr, numTBs_thisSM, 0) == 0) {
-        // atomicCAS acts as a load acquire, need TF to enforce ordering locally
+        // atomicCAS acts as a load acquire, need TF to enforce ordering
+        // locally
         __threadfence_block();
         *done = 1;
       }
@@ -156,7 +160,8 @@ __device__ void joinBarrier_helper(unsigned int * barrierBuffers,
                                    const bool isMasterThread,
                                    const int MAX_BLOCKS) {
   if (numTBs_perSM > 1) {
-    cudaBarrierAtomicLocal(perSMBarrierBuffers, smID, numTBs_perSM, isMasterThread, MAX_BLOCKS);
+    cudaBarrierAtomicLocal(perSMBarrierBuffers, smID, numTBs_perSM,
+                           isMasterThread, MAX_BLOCKS);
 
     // only 1 TB per SM needs to do the global barrier since we synchronized
     // the TBs locally first
@@ -164,7 +169,8 @@ __device__ void joinBarrier_helper(unsigned int * barrierBuffers,
       cudaBarrierAtomic(barrierBuffers, numBlocksAtBarr, isMasterThread);
     }
 
-    // all TBs on this SM do a local barrier to ensure global barrier is reached
+    // all TBs on this SM do a local barrier to ensure global barrier is
+    // reached
     cudaBarrierAtomicLocal(perSMBarrierBuffers, smID, numTBs_perSM,
                            isMasterThread, MAX_BLOCKS);
   } else { // if only 1 TB on the SM, no need for the local barriers

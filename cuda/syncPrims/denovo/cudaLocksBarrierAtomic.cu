@@ -146,7 +146,8 @@ __device__ void joinBarrier_helper(unsigned int * barrierBuffers,
                                    const bool isMasterThread,
                                    const int MAX_BLOCKS) {
   if (numTBs_perSM > 1) {
-    cudaBarrierAtomicLocal(perSMBarrierBuffers, smID, numTBs_perSM, isMasterThread, MAX_BLOCKS);
+    cudaBarrierAtomicLocal(perSMBarrierBuffers, smID, numTBs_perSM,
+                           isMasterThread, MAX_BLOCKS);
 
     // only 1 TB per SM needs to do the global barrier since we synchronized
     // the TBs locally first
@@ -154,7 +155,8 @@ __device__ void joinBarrier_helper(unsigned int * barrierBuffers,
       cudaBarrierAtomic(barrierBuffers, numBlocksAtBarr, isMasterThread);
     }
 
-    // all TBs on this SM do a local barrier to ensure global barrier is reached
+    // all TBs on this SM do a local barrier to ensure global barrier is
+    // reached
     cudaBarrierAtomicLocal(perSMBarrierBuffers, smID, numTBs_perSM,
                            isMasterThread, MAX_BLOCKS);
   } else { // if only 1 TB on the SM, no need for the local barriers

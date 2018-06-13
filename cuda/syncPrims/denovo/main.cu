@@ -9,7 +9,6 @@
 #define NUM_WORDS_PER_CACHELINE 16
 #define NUM_THREADS_PER_HALFWARP 16
 
-
 // separate .cu files
 #include "cudaLocks.cu"
 #include "cudaLocksBarrier.cu"
@@ -25,6 +24,78 @@ int NUM_SM = 0;
 int MAX_BLOCKS = 0;
 
 bool pageAlign = false;
+
+/*
+  Helper function to do data accesses for golden checking code.
+*/
+void accessData_golden(float * storageGolden, int currLoc, int numStorageLocs)
+{
+  /*
+    If this location isn't the first location accessed by a
+    thread, update it -- each half-warp accesses (NUM_LDST + 1) cache
+    lines.
+  */
+  if (currLoc % (NUM_THREADS_PER_HALFWARP * (NUM_LDST + 1)) >=
+      NUM_WORDS_PER_CACHELINE)
+  {
+    assert((currLoc - NUM_WORDS_PER_CACHELINE) >= 0);
+    assert(currLoc < numStorageLocs);
+    // each location is dependent on the location accessed at the
+    // same word on the previous cache line
+    storageGolden[currLoc] =
+      ((storageGolden[currLoc -
+                      NUM_WORDS_PER_CACHELINE]/* * MAD_MUL*/) /*+ MAD_ADD*/);
+  }
+}
+
+/*
+  Shared function that does the critical section data accesses for the barrier
+  and mutex kernels.
+
+  NOTE: kernels that access data differently (e.g., semaphores) should not call
+  this function.
+*/
+inline __device__ void accessData(float * storage, int threadBaseLoc,
+                                  int threadOffset, int NUM_LDST)
+{
+  // local variables
+  int readLoc = 0, writeLoc = 0;
+
+  for (int n = NUM_LDST-1; n >= 0; --n) {
+    writeLoc = ((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) +
+               threadOffset;
+    readLoc = ((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset;
+    storage[writeLoc] = ((storage[readLoc]/* * MAD_MUL*/) /*+ MAD_ADD*/);
+  }
+}
+
+/*
+  Helper function for semaphore writers.  Although semaphore writers are
+  iterating over all locations accessed on a given SM, the logic for this
+  varies and is done outside this helper, so can just call accessData().
+*/
+inline __device__ void accessData_semWr(float * storage, int threadBaseLoc,
+                                        int threadOffset, int NUM_LDST)
+{
+  accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+}
+
+
+/*
+  Helper function for semaphore readers.
+*/
+inline __device__ void accessData_semRd(float * storage,
+                                        volatile float * dummyArray,
+                                        int threadBaseLoc,
+                                        int threadOffset, int NUM_LDST)
+{
+  for (int n = NUM_LDST-1; n >= 0; --n) {
+    dummyArray[threadIdx.x] +=
+      storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) +
+              threadOffset];
+    __syncthreads();
+  }
+}
 
 // performs a tree barrier.  Each TB on an SM accesses unique data then joins a
 // local barrier.  1 of the TBs from each SM then joins the global barrier
@@ -69,7 +140,6 @@ __global__ void kernelAtomicTreeBarrierUniq(float * storage,
   // all SMs have an identical number of TBs
   int numTBs_perSM = (gridDim.x / numBlocksAtBarr);
   if (numTBs_perSM == 0) { ++numTBs_perSM; } // always have to have at least 1
-  int inLoc = 0, outLoc = 0;
 
   /*
   if (threadIdx.x == 0) {
@@ -81,12 +151,7 @@ __global__ void kernelAtomicTreeBarrierUniq(float * storage,
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
-    for (int n = NUM_LDST-1; n >= 0; --n) {
-      outLoc = ((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) +
-               threadOffset;
-      inLoc = ((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset;
-      storage[outLoc] = ((storage[inLoc]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-    }
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
 
     joinBarrier_helper(barrierBuffers, perSMBarrierBuffers, numBlocksAtBarr,
                        smID, perSM_blockID, numTBs_perSM, isMasterThread,
@@ -152,7 +217,6 @@ __global__ void kernelAtomicTreeBarrierUniqLocalExch(float * storage,
   // all SMs have an identical number of TBs
   int numTBs_perSM = (gridDim.x / numBlocksAtBarr);
   if (numTBs_perSM == 0) { ++numTBs_perSM; } // always have to have at least 1
-  int inLoc = 0, outLoc = 0;
 
   /*
   if (threadIdx.x == 0) {
@@ -164,28 +228,19 @@ __global__ void kernelAtomicTreeBarrierUniqLocalExch(float * storage,
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
-    for (int n = NUM_LDST-1; n >= 0; --n) {
-      outLoc = ((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) +
-               threadOffset;
-      inLoc = ((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset;
-      storage[outLoc] = ((storage[inLoc]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-    }
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
 
     // all TBs on this SM do a local barrier (if > 1 TB)
     if (numTBs_perSM > 1) {
-      cudaBarrierAtomicLocal(perSMBarrierBuffers, smID, numTBs_perSM, isMasterThread, MAX_BLOCKS);
-      __syncthreads();
+      cudaBarrierAtomicLocal(perSMBarrierBuffers, smID, numTBs_perSM,
+                             isMasterThread, MAX_BLOCKS);
 
       // exchange data within the TBs on this SM, then do some more computations
       currBlockID = ((currBlockID + numBlocksAtBarr) % gridDim.x);
       tid = ((currBlockID * blockDim.x) + threadIdx.x);
       threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
-      for (int n = NUM_LDST-1; n >= 0; --n) {
-        outLoc = ((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) +
-                 threadOffset;
-        inLoc = ((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset;
-        storage[outLoc] = ((storage[inLoc]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-      }
+
+      accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
     }
 
     joinBarrier_helper(barrierBuffers, perSMBarrierBuffers, numBlocksAtBarr,
@@ -249,7 +304,6 @@ __global__ void kernelFBSTreeBarrierUniq(float * storage,
   // all SMs have an identical number of TBs
   int numTBs_perSM = (gridDim.x/numBlocksAtBarr);
   if (numTBs_perSM == 0) { ++numTBs_perSM; } // always have to have at least 1
-  int inLoc = 0, outLoc = 0;
 
   /*
   if (threadIdx.x == 0) {
@@ -261,12 +315,7 @@ __global__ void kernelFBSTreeBarrierUniq(float * storage,
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
-    for (int n = NUM_LDST-1; n >= 0; --n) {
-      outLoc = ((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) +
-               threadOffset;
-      inLoc = ((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset;
-      storage[outLoc] = ((storage[inLoc]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-    }
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
 
     joinLFBarrier_helper(barrierBuffers, perSMBarrierBuffers, numBlocksAtBarr,
                          smID, perSM_blockID, numTBs_perSM, arrayStride,
@@ -329,7 +378,6 @@ __global__ void kernelFBSTreeBarrierUniqLocalExch(float * storage,
   // all SMs have an identical number of TBs
   int numTBs_perSM = (gridDim.x/numBlocksAtBarr);
   if (numTBs_perSM == 0) { ++numTBs_perSM; } // always have to have at least 1
-  int inLoc = 0, outLoc = 0;
 
   /*
   if (threadIdx.x == 0) {
@@ -341,30 +389,20 @@ __global__ void kernelFBSTreeBarrierUniqLocalExch(float * storage,
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
-    for (int n = NUM_LDST-1; n >= 0; --n) {
-      outLoc = ((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) +
-               threadOffset;
-      inLoc = ((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset;
-      storage[outLoc] = ((storage[inLoc]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-    }
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
 
     // all TBs on this SM do a local barrier (if > 1 TB per SM)
     if (numTBs_perSM > 1) {
       cudaBarrierLocal(barrierBuffers, numBlocksAtBarr, arrayStride,
                        perSMBarrierBuffers, smID, numTBs_perSM, perSM_blockID,
                        false, MAX_BLOCKS);
-      __syncthreads();
 
       // exchange data within the TBs on this SM and do some more computations
       currBlockID = ((currBlockID + numBlocksAtBarr) % gridDim.x);
       tid = ((currBlockID * blockDim.x) + threadIdx.x);
       threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
-      for (int n = NUM_LDST-1; n >= 0; --n) {
-        outLoc = ((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) +
-                 threadOffset;
-        inLoc = ((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset;
-        storage[outLoc] = ((storage[inLoc]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-      }
+
+      accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
     }
 
     joinLFBarrier_helper(barrierBuffers, perSMBarrierBuffers, numBlocksAtBarr,
@@ -410,7 +448,6 @@ __global__ void kernelSleepingMutex(cudaMutex_t mutex, float * storage,
   const int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
   __shared__ int myRingBufferLoc; // tracks my TBs location in the ring buffer
-  int inLoc = 0, outLoc = 0;
 
   if (threadIdx.x == 0) {
     myRingBufferLoc = -1; // initially I have no location
@@ -425,16 +462,11 @@ __global__ void kernelSleepingMutex(cudaMutex_t mutex, float * storage,
   {
     myRingBufferLoc = cudaMutexSleepLock(mutex, mutexBuffers, mutexBufferTails,
                                          maxBufferSize, arrayStride, NUM_SM);
-    __syncthreads();
-    for (int n = NUM_LDST-1; n >= 0; --n) {
-      outLoc = ((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) +
-               threadOffset;
-      inLoc = ((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset;
-      storage[outLoc] = ((storage[inLoc]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-    }
+
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
     cudaMutexSleepUnlock(mutex, mutexBuffers, myRingBufferLoc, maxBufferSize,
                          arrayStride, NUM_SM);
-    __syncthreads();
   }
 
   /*
@@ -468,7 +500,6 @@ __global__ void kernelSleepingMutexUniq(cudaMutex_t mutex, float * storage,
   const int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
   __shared__ int myRingBufferLoc; // tracks my TBs location in the ring buffer
-  int inLoc = 0, outLoc = 0;
 
   if (threadIdx.x == 0) {
     myRingBufferLoc = -1; // initially I have no location
@@ -484,16 +515,11 @@ __global__ void kernelSleepingMutexUniq(cudaMutex_t mutex, float * storage,
     myRingBufferLoc = cudaMutexSleepLockLocal(mutex, smID, mutexBuffers,
                                               mutexBufferTails, maxBufferSize,
                                               arrayStride, NUM_SM);
-    __syncthreads();
-    for (int n = NUM_LDST-1; n >= 0; --n) {
-      outLoc = ((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) +
-               threadOffset;
-      inLoc = ((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset;
-      storage[outLoc] = ((storage[inLoc]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-    }
+
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
     cudaMutexSleepUnlockLocal(mutex, smID, mutexBuffers, myRingBufferLoc,
                               maxBufferSize, arrayStride, NUM_SM);
-    __syncthreads();
   }
 
   /*
@@ -524,7 +550,6 @@ __global__ void kernelFetchAndAddMutex(cudaMutex_t mutex, float * storage,
   // half-warp accesses sequential words
   const int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
-  int inLoc = 0, outLoc = 0;
 
   /*
   if (threadIdx.x == 0) {
@@ -537,15 +562,10 @@ __global__ void kernelFetchAndAddMutex(cudaMutex_t mutex, float * storage,
   for (int i = 0; i < ITERATIONS; ++i)
   {
     cudaMutexFALock(mutex, mutexBufferHeads, mutexBufferTails, NUM_SM);
-    __syncthreads();
-    for (int n = NUM_LDST-1; n >= 0; --n) {
-      outLoc = ((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) +
-               threadOffset;
-      inLoc = ((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset;
-      storage[outLoc] = ((storage[inLoc]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-    }
+
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
     cudaMutexFAUnlock(mutex, mutexBufferTails, NUM_SM);
-    __syncthreads();
   }
 
   /*
@@ -591,12 +611,10 @@ __global__ void kernelFetchAndAddMutexUniq(cudaMutex_t mutex, float * storage,
   {
     cudaMutexFALockLocal(mutex, smID, mutexBufferHeads, mutexBufferTails,
                          NUM_SM);
-    __syncthreads();
-    for (int n = NUM_LDST-1; n >= 0; --n) {
-      storage[((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) + threadOffset] = ((storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-    }
+
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
     cudaMutexFAUnlockLocal(mutex, smID, mutexBufferTails, NUM_SM);
-    __syncthreads();
   }
 
   /*
@@ -626,7 +644,6 @@ __global__ void kernelSpinLockMutex(cudaMutex_t mutex, float * storage,
   // half-warp accesses sequential words
   const int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
-  unsigned int readLoc = 0, writeLoc = 0;
 
   /*
   if (threadIdx.x == 0) {
@@ -639,14 +656,10 @@ __global__ void kernelSpinLockMutex(cudaMutex_t mutex, float * storage,
   for (int i = 0; i < ITERATIONS; ++i)
   {
     cudaMutexSpinLock(mutex, mutexBufferHeads, NUM_SM);
-    __syncthreads();
-    for (int n = NUM_LDST-1; n >= 0; --n) {
-      readLoc = ((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset;
-      writeLoc = ((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) + threadOffset;
-      storage[writeLoc] = ((storage[readLoc]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-    }
+
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
     cudaMutexSpinUnlock(mutex, mutexBufferHeads, NUM_SM);
-    __syncthreads();
   }
 
   /*
@@ -688,12 +701,10 @@ __global__ void kernelSpinLockMutexUniq(cudaMutex_t mutex, float * storage,
   for (int i = 0; i < ITERATIONS; ++i)
   {
     cudaMutexSpinLockLocal(mutex, smID, mutexBufferHeads, NUM_SM);
-    __syncthreads();
-    for (int n = NUM_LDST-1; n >= 0; --n) {
-      storage[((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) + threadOffset] = ((storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-    }
+
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
     cudaMutexSpinUnlockLocal(mutex, smID, mutexBufferHeads, NUM_SM);
-    __syncthreads();
   }
 
   /*
@@ -735,12 +746,10 @@ __global__ void kernelEBOMutex(cudaMutex_t mutex, float * storage,
   for (int i = 0; i < ITERATIONS; ++i)
   {
     cudaMutexEBOLock(mutex, mutexBufferHeads, NUM_SM);
-    __syncthreads();
-    for (int n = NUM_LDST-1; n >= 0; --n) {
-      storage[((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) + threadOffset] = ((storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-    }
+
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
     cudaMutexEBOUnlock(mutex, mutexBufferHeads, NUM_SM);
-    __syncthreads();
   }
 
   /*
@@ -782,12 +791,10 @@ __global__ void kernelEBOMutexUniq(cudaMutex_t mutex, float * storage,
   for (int i = 0; i < ITERATIONS; ++i)
   {
     cudaMutexEBOLockLocal(mutex, smID, mutexBufferHeads, NUM_SM);
-    __syncthreads();
-    for (int n = NUM_LDST-1; n >= 0; --n) {
-      storage[((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) + threadOffset] = ((storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-    }
+
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
     cudaMutexEBOUnlockLocal(mutex, smID, mutexBufferHeads, NUM_SM);
-    __syncthreads();
   }
 
   /*
@@ -862,13 +869,10 @@ __global__ void kernelSpinLockSemaphore(cudaSemaphore_t sem,
     */
     cudaSemaphoreSpinWait(sem, isWriter, maxSemCount, semaphoreBuffers,
                           NUM_SM);
-    __syncthreads();
 
     if (isWriter) { // TB 0 writes all the data that the TBs on this SM access
       for (int j = 0; j < numTBs_perSM; ++j) {
-        for (int n = NUM_LDST-1; n >= 0; --n) {
-          storage[((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) + threadOffset] = ((storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-        }
+        accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
 
         /*
           Update the writer's "location" so it writes to the locations that the
@@ -883,14 +887,11 @@ __global__ void kernelSpinLockSemaphore(cudaSemaphore_t sem,
       tid = ((perSM_blockID * blockDim.x) + threadIdx.x);
       threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
     } else { // rest of TBs on this SM read the data written by each SM's TB 0
-      for (int n = NUM_LDST; n >= 0; --n) {
-        dummyArray[threadIdx.x] += storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset];
-        __syncthreads();
-      }
+      accessData_semRd(storage, dummyArray, threadBaseLoc, threadOffset,
+                       NUM_LDST);
     }
     cudaSemaphoreSpinPost(sem, isWriter, maxSemCount, semaphoreBuffers,
                           NUM_SM);
-    __syncthreads();
   }
 
   /*
@@ -958,13 +959,10 @@ __global__ void kernelSpinLockSemaphoreUniq(cudaSemaphore_t sem,
     */
     cudaSemaphoreSpinWaitLocal(sem, smID, isWriter, maxSemCount,
                                semaphoreBuffers, NUM_SM);
-    __syncthreads();
 
     if (isWriter) { // TB 0 writes all the data that the TBs on this SM access
       for (int j = 0; j < numTBs_perSM; ++j) {
-        for (int n = NUM_LDST-1; n >= 0; --n) {
-          storage[((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) + threadOffset] = ((storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-        }
+        accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
 
         /*
           update the writer's "location" so it writes to the locations that the
@@ -980,14 +978,11 @@ __global__ void kernelSpinLockSemaphoreUniq(cudaSemaphore_t sem,
       tid = ((currBlockID * blockDim.x) + threadIdx.x);
       threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
     } else { // rest of TBs on this SM read the data written by each SM's TB 0
-      for (int n = NUM_LDST; n >= 0; --n) {
-        dummyArray[threadIdx.x] += storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset];
-        __syncthreads();
-      }
+      accessData_semRd(storage, dummyArray, threadBaseLoc, threadOffset,
+                       NUM_LDST);
     }
     cudaSemaphoreSpinPostLocal(sem, smID, isWriter, maxSemCount,
                                semaphoreBuffers, NUM_SM);
-    __syncthreads();
   }
 
   /*
@@ -1060,13 +1055,10 @@ __global__ void kernelEBOSemaphore(cudaSemaphore_t sem, float * storage,
     */
     cudaSemaphoreEBOWait(sem, isWriter, maxSemCount, semaphoreBuffers,
                          NUM_SM);
-    __syncthreads();
 
     if (isWriter) { // TB 0 writes all the data that the TBs on this SM access
       for (int j = 0; j < numTBs_perSM; ++j) {
-        for (int n = NUM_LDST-1; n >= 0; --n) {
-          storage[((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) + threadOffset] = ((storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-        }
+        accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
 
         /*
           Update the writer's "location" so it writes to the locations that the
@@ -1081,14 +1073,11 @@ __global__ void kernelEBOSemaphore(cudaSemaphore_t sem, float * storage,
       tid = ((perSM_blockID * blockDim.x) + threadIdx.x);
       threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
     } else { // rest of TBs on this SM read the data written by each SM's TB 0
-      for (int n = NUM_LDST; n >= 0; --n) {
-        dummyArray[threadIdx.x] += storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset];
-        __syncthreads();
-      }
+      accessData_semRd(storage, dummyArray, threadBaseLoc, threadOffset,
+                       NUM_LDST);
     }
     cudaSemaphoreEBOPost(sem, isWriter, maxSemCount, semaphoreBuffers,
                          NUM_SM);
-    __syncthreads();
   }
 
   /*
@@ -1153,13 +1142,10 @@ __global__ void kernelEBOSemaphoreUniq(cudaSemaphore_t sem, float * storage,
     */
     cudaSemaphoreEBOWaitLocal(sem, smID, isWriter, maxSemCount,
                               semaphoreBuffers, NUM_SM);
-    __syncthreads();
 
     if (isWriter) { // TB 0 writes all the data that the TBs on this SM access
       for (int j = 0; j < numTBs_perSM; ++j) {
-        for (int n = NUM_LDST-1; n >= 0; --n) {
-          storage[((threadBaseLoc + n + 1) * NUM_WORDS_PER_CACHELINE) + threadOffset] = ((storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-        }
+        accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
 
         /*
           update the writer's "location" so it writes to the locations that the
@@ -1175,14 +1161,11 @@ __global__ void kernelEBOSemaphoreUniq(cudaSemaphore_t sem, float * storage,
       tid = ((currBlockID * blockDim.x) + threadIdx.x);
       threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
     } else { // rest of TBs on this SM read the data written by each SM's TB 0
-      for (int n = NUM_LDST; n >= 0; --n) {
-        dummyArray[threadIdx.x] += storage[((threadBaseLoc + n) * NUM_WORDS_PER_CACHELINE) + threadOffset];
-        __syncthreads();
-      }
+      accessData_semRd(storage, dummyArray, threadBaseLoc, threadOffset,
+                       NUM_LDST);
     }
     cudaSemaphoreEBOPostLocal(sem, smID, isWriter, maxSemCount,
                               semaphoreBuffers, NUM_SM);
-    __syncthreads();
   }
 
   /*
@@ -1478,12 +1461,34 @@ void invokeEBOSemaphore_uniq(cudaSemaphore_t sem, float * storage,
 int main(int argc, char ** argv)
 {
   if (argc != 5) {
-    fprintf(stderr, "./allSyncPrims-1kernel <syncPrim> <numLdSt> <numTBs> <numCSIters>\n");
+    fprintf(stderr, "./allSyncPrims-1kernel <syncPrim> <numLdSt> <numTBs> "
+            "<numCSIters>\n");
     fprintf(stderr, "where:\n");
-    fprintf(stderr, "\t<syncPrim>: a string that represents which synchronization primitive to run.\n\t\tatomicTreeBarrUniq - Atomic Tree Barrier, atomicTreeBarrUniqLocalExch - Atomic Tree Barrier with local exchange, lfTreeBarrUniq - Lock-Free Tree Barrier, lfTreeBarrUniqLocalExch - Lock-Free Tree Barrier with local exchange, spinMutex - Spin Lock Mutex, spinMutexEBO - Spin Lock Mutex with Backoff, sleepMutex - Sleep Mutex, faMutex - Fetch-and-Add Mutex, spinMutexUniq - Spin Lock Mutex -- accesses to unique locations per TB, spinMutexEBOUniq - Spin Lock Mutex with Backoff -- accesses to unique locations per TB, sleepMutexUniq - Sleep Mutex -- accesses to unique locations per TB, faMutexUniq - Fetch-and-Add Mutex -- accesses to unique locations per TB, spinSemUniq1 - Spin Semaphore (Max: 1), spinSemUniq2 - Spin Semaphore (Max: 2), spinSemUniq10 - Spin Semaphore (Max: 10), spinSemUniq120 - Spin Semaphore (Max: 120), spinSemEBOUniq1 - Spin Semaphore with Backoff (Max: 1), spinSemEBOUniq2 - Spin Semaphore with Backoff (Max: 2), spinSemEBOUniq10 - Spin Semaphore with Backoff (Max: 10), spinSemEBOUniq120 - Spin Semaphore with Backoff (Max: 120)\n");
-    fprintf(stderr, "\t<numLdSt>: the # of LDs and STs to do for each thread in the critical section.\n");
-    fprintf(stderr, "\t<numTBs>: the # of TBs to execute (want to be divisible by the number of SMs).\n");
-    fprintf(stderr, "\t<numCSIters>: number of iterations of the critical section.\n");
+    fprintf(stderr, "\t<syncPrim>: a string that represents which "
+            "synchronization primitive to run.\n\t\tatomicTreeBarrUniq - "
+            "Atomic Tree Barrier\n\t\tatomicTreeBarrUniqLocalExch - Atomic Tree "
+            "Barrier with local exchange\n\t\tlfTreeBarrUniq - Lock-Free Tree "
+            "Barrier\n\t\tlfTreeBarrUniqLocalExch - Lock-Free Tree Barrier with "
+            "local exchange\n\t\tspinMutex - Spin Lock Mutex\n\t\tspinMutexEBO - Spin "
+            "Lock Mutex with Backoff\n\t\tsleepMutex - Sleep Mutex\n\t\tfaMutex - "
+            "Fetch-and-Add Mutex\n\t\tspinMutexUniq - Spin Lock Mutex -- accesses "
+            "to unique locations per TB\n\t\tspinMutexEBOUniq - Spin Lock Mutex "
+            "with Backoff -- accesses to unique locations per TB\n\t\t"
+            "sleepMutexUniq - Sleep Mutex -- accesses to unique locations per "
+            "TB\n\t\tfaMutexUniq - Fetch-and-Add Mutex -- accesses to unique "
+            "locations per TB\n\t\tspinSemUniq1 - Spin Semaphore (Max: 1)\n\t\t"
+            "spinSemUniq2 - Spin Semaphore (Max: 2)\n\t\tspinSemUniq10 - Spin "
+            "Semaphore (Max: 10)\n\t\tspinSemUniq120 - Spin Semaphore (Max: 120)\n\t\t"
+            "spinSemEBOUniq1 - Spin Semaphore with Backoff (Max: 1)\n\t\t"
+            "spinSemEBOUniq2 - Spin Semaphore with Backoff (Max: 2)\n\t\t"
+            "spinSemEBOUniq10 - Spin Semaphore with Backoff (Max: 10)\n\t\t"
+            "spinSemEBOUniq120 - Spin Semaphore with Backoff (Max: 120)\n");
+    fprintf(stderr, "\t<numLdSt>: the # of LDs and STs to do for each thread "
+            "in the critical section.\n");
+    fprintf(stderr, "\t<numTBs>: the # of TBs to execute (want to be "
+            "divisible by the number of SMs).\n");
+    fprintf(stderr, "\t<numCSIters>: number of iterations of the critical "
+            "section.\n");
     exit(-1);
   }
 
@@ -1497,7 +1502,8 @@ int main(int argc, char ** argv)
 
   cudaDeviceProp deviceProp;
   cudaGetDeviceProperties(&deviceProp, 0);
-  fprintf(stdout, "GPU Compute Capability: %d.%d\n", deviceProp.major, deviceProp.minor);
+  fprintf(stdout, "GPU Compute Capability: %d.%d\n", deviceProp.major,
+          deviceProp.minor);
   if ((deviceProp.major == 9999) && (deviceProp.minor == 9999)) {
     fprintf(stderr, "There is no CUDA capable device\n");
     exit(-1);
@@ -1505,11 +1511,12 @@ int main(int argc, char ** argv)
 
   NUM_SM = deviceProp.multiProcessorCount;
   const int maxTBPerSM = deviceProp.maxThreadsPerBlock/NUM_THREADS_PER_BLOCK;
-  //assert(maxTBPerSM * NUM_THREADS_PER_BLOCK <= deviceProp.maxThreadsPerMultiProcessor);
+  //assert(maxTBPerSM * NUM_THREADS_PER_BLOCK <=
+  //       deviceProp.maxThreadsPerMultiProcessor);
   MAX_BLOCKS = maxTBPerSM * NUM_SM;
 
-  //fprintf(stdout, "# SM: %d, Max Thrs/SM: %d, Max Thrs/TB: %d, Max TB/SM: %d, Max # TB: %d\n", NUM_SM, deviceProp.maxThreadsPerMultiProcessor, deviceProp.maxThreadsPerBlock, maxTBPerSM, MAX_BLOCKS);
-  fprintf(stdout, "# SM: %d, Max Thrs/TB: %d, Max TB/SM: %d, Max # TB: %d\n", NUM_SM, deviceProp.maxThreadsPerBlock, maxTBPerSM, MAX_BLOCKS);
+  fprintf(stdout, "# SM: %d, Max Thrs/TB: %d, Max TB/SM: %d, Max # TB: %d\n",
+          NUM_SM, deviceProp.maxThreadsPerBlock, maxTBPerSM, MAX_BLOCKS);
 
   // timing
   cudaEvent_t start, end;
@@ -1603,10 +1610,9 @@ int main(int argc, char ** argv)
   region_t readOnlyStorageReg = READ_ONLY_REGION;
   */
 
-  // *4 to provide some extra space
   // multiply number of mutexes, semaphores by NUM_SM to allow per-core locks
-  cudaLocksInit(MAX_BLOCKS*4, 8 * NUM_SM, 24 * NUM_SM, 1 * NUM_SM, pageAlign/*,
-                locksReg*/);
+  cudaLocksInit(MAX_BLOCKS*4, 8 * NUM_SM, 24 * NUM_SM, pageAlign/*,
+                locksReg*/, NUM_SM);
 
   /*
     The barriers need a per-SM barrier that is not part of the global synch
@@ -1657,10 +1663,14 @@ int main(int argc, char ** argv)
     storage = storage_temp;
   }
 
- // initialize storage
+  // initialize storage
   for (int i = 0; i < numStorageLocs; ++i) { storage[i] = i; }
   // initialize per-SM barriers to 0's
   for (int i = 0; i < (NUM_SM * MAX_BLOCKS * 2); ++i) { perSMBarriers[i] = 0; }
+
+  fprintf(stdout, "# TBs: %d, # Ld/St: %d, # Locs Mult: %d, # Uniq Locs/TB: "
+          "%d, # Storage Locs: %d\n", numTBs, NUM_LDST, numLocsMult,
+          numUniqLocsAccPerTB, numStorageLocs);
 
   // lock variables
   cudaMutex_t spinMutex, faMutex, sleepMutex, eboMutex;
@@ -1807,7 +1817,8 @@ int main(int argc, char ** argv)
     case 36:
       break;
     default:
-      fprintf(stderr, "ERROR: Trying to run synch prim #%u, but only 0-17 are supported\n", syncPrim);
+      fprintf(stderr, "ERROR: Trying to run synch prim #%u, but only 0-36 are "
+              "supported\n", syncPrim);
       exit(-1);
       break;
   }
@@ -1819,7 +1830,7 @@ int main(int argc, char ** argv)
 
   // # TBs must be < maxBufferSize or sleep mutex ring buffer won't work
   if ((syncPrim == 6) || (syncPrim == 22)) {
-    assert(MAX_BLOCKS < cpuLockData->maxBufferSize);
+    assert(MAX_BLOCKS <= cpuLockData->maxBufferSize);
   }
 
   // NOTE: region of interest begins here
@@ -1962,7 +1973,10 @@ int main(int argc, char ** argv)
     case 36:
       break;
     default:
-      fprintf(stderr, "ERROR: Trying to run synch prim #%u, but only 0-17 are supported\n", syncPrim);
+      fprintf(stderr,
+              "ERROR: Trying to run synch prim #%u, but only 0-36 are "
+              "supported\n",
+              syncPrim);
       exit(-1);
       break;
   }
@@ -1995,18 +2009,32 @@ int main(int argc, char ** argv)
         // first cache line of words aren't written to
         for (int i = (numLocsAccessed-1); i >= 0; --i)
         {
-          currLoc = i;
+          // every iteration of the critical section, the location being
+          // accessed is shifted by numUniqLocsAccPerTB
+          currLoc = (i + (j * numUniqLocsAccPerTB)) % numLocsAccessed;
 
-          // if this location isn't the first location accessed by a
-          // thread, update it -- each half-warp accesses
-          // (NUM_LDST + 1) cache lines
-          if (currLoc % (NUM_THREADS_PER_HALFWARP * (NUM_LDST + 1)) >= NUM_WORDS_PER_CACHELINE)
+          accessData_golden(storageGolden, currLoc, numStorageLocs);
+        }
+
+        // local exchange versions do additional accesses when there are
+        // multiple TBs on a SM
+        if ((syncPrim == 1) || (syncPrim == 3))
+        {
+          if (numTBs_perSM > 1)
           {
-            assert((currLoc - NUM_WORDS_PER_CACHELINE) >= 0);
-            assert(currLoc < numStorageLocs);
-            // each location is dependent on the location accessed at the
-            // same word on the previous cache line
-            storageGolden[currLoc] = ((storageGolden[currLoc - NUM_WORDS_PER_CACHELINE]/* * MAD_MUL*/) /*+ MAD_ADD*/);
+            for (int i = (numLocsAccessed-1); i >= 0; --i)
+            {
+              // advance the current location by the number of unique locations
+              // accessed by a SM (mod the number of memory locations accessed)
+              currLoc = (i + (numTBs_perSM * numUniqLocsAccPerTB)) %
+                        numLocsAccessed;
+              // every iteration of the critical section, the location being
+              // accessed is also shifted by numUniqLocsAccPerTB
+              currLoc = (currLoc + (j * numUniqLocsAccPerTB)) %
+                        numLocsAccessed;
+
+              accessData_golden(storageGolden, currLoc, numStorageLocs);
+            }
           }
         }
       }
@@ -2026,17 +2054,7 @@ int main(int argc, char ** argv)
         {
           for (int i = (numUniqLocsAccPerTB-1); i >= 0; --i)
           {
-            // if this location isn't the first location accessed by a
-            // thread, update it -- each half-warp accesses (NUM_LDST + 1)
-            // cache lines
-            if (i % (NUM_THREADS_PER_HALFWARP * (NUM_LDST + 1)) >= NUM_WORDS_PER_CACHELINE)
-            {
-              assert((i - NUM_WORDS_PER_CACHELINE) >= 0);
-              assert(i < numStorageLocs);
-              // each location is dependent on the location accessed at the
-              // same word on the previous cache line
-              storageGolden[i] = ((storageGolden[i - NUM_WORDS_PER_CACHELINE]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-            }
+            accessData_golden(storageGolden, i, numStorageLocs);
           }
         }
       }
@@ -2062,21 +2080,10 @@ int main(int argc, char ** argv)
             first TB on the SM -- only for the mutexes, for semaphores this
             isn't true.
           */
-          currLoc = (((syncPrim >= 24) && (syncPrim <= 35)) ? i : (i % (NUM_SM * numUniqLocsAccPerTB)));
+          currLoc = (((syncPrim >= 24) && (syncPrim <= 35)) ? i :
+                     (i % (NUM_SM * numUniqLocsAccPerTB)));
 
-          /*
-            If this location isn't the first location accessed by a
-            thread, update it -- each half-warp accesses
-           (NUM_LDST + 1) cache lines.
-          */
-          if (currLoc % (NUM_THREADS_PER_HALFWARP * (NUM_LDST + 1)) >= NUM_WORDS_PER_CACHELINE)
-          {
-            assert((currLoc - NUM_WORDS_PER_CACHELINE) >= 0);
-            assert(currLoc < numStorageLocs);
-            // each location is dependent on the location accessed at the
-            // same word on the previous cache line
-            storageGolden[currLoc] = ((storageGolden[currLoc - NUM_WORDS_PER_CACHELINE]/* * MAD_MUL*/) /*+ MAD_ADD*/);
-          }
+          accessData_golden(storageGolden, currLoc, numStorageLocs);
         }
       }
     }
@@ -2087,7 +2094,7 @@ int main(int argc, char ** argv)
   // check the output values
   for (int i = 0; i < numStorageLocs; ++i)
   {
-    if (abs(storage[i] - storageGolden[i]) > 1E-5)
+    if (std::abs(storage[i] - storageGolden[i]) > 1E-5)
     {
       fprintf(stderr, "\tERROR: storage[%d] = %f, golden[%d] = %f\n", i,
               storage[i], i, storageGolden[i]);

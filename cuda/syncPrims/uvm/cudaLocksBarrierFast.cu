@@ -14,8 +14,6 @@ inline __device__ void setMyInFlag(unsigned int * inVars,
   {
     // atomicExch acts as a store release, need TF to enforce ordering
     __threadfence();
-    // MDS: Use atomic write to emulate a volatile write
-    //reinterpret_cast<volatile int * >(inVars)[blockID] = 1;
     atomicExch((unsigned int *)(inVars + blockID), 1);
   }
   __syncthreads();
