@@ -41,7 +41,7 @@ __device__ unsigned int cudaMutexSleepLock(const cudaMutex_t mutex,
   if (isMasterThread)
   {
     /*
-      Don't need store release semantics -- the atomicCAS below determines
+      Don't need store release semantics -- the atomicAdd below determines
       the happens-before ordering here.
     */
     myRingBufferLoc = atomicInc(ringBufferTailPtr, maxRingBufferSize);
@@ -97,12 +97,12 @@ __device__ void cudaMutexSleepUnlock(const cudaMutex_t mutex,
     // set my ring buffer location to -1
     atomicExch((int *)(ringBuffer + myBufferLoc), -1);
 
-    // atomicExch acts as a store release, need TF to enforce ordering
-    __threadfence();
-
     // set the next location in the ring buffer to 1 so that next TB in line
     // can get the lock now
     atomicExch((int *)ringBuffer + nextBufferLoc, 1);
+
+    // atomicExch acts as a store release, need TF to enforce ordering
+    __threadfence();
   }
   __syncthreads();
 }
