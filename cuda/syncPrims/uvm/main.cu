@@ -1190,9 +1190,10 @@ int main(int argc, char ** argv)
   const char * syncPrim_str = argv[1];
   NUM_LDST = atoi(argv[2]);
   numTBs = atoi(argv[3]);
-  const int NUM_ITERS = atoi(argv[4]);
   assert(numTBs <= MAX_BLOCKS);
+  const int NUM_ITERS = atoi(argv[4]);
   const int numTBs_perSM = (int)ceil((float)numTBs / NUM_SM);
+  assert(numTBs_perSM > 0);
 
   unsigned int syncPrim = 9999;
   // set the syncPrim variable to the appropriate value based on the inputted
@@ -1280,7 +1281,9 @@ int main(int argc, char ** argv)
   // per thread are offset so that each subsequent access is dependent
   // on the previous one -- thus need an extra access per thread.
   int numUniqLocsAccPerTB = (NUM_THREADS_PER_BLOCK * (NUM_LDST + 1));
+  assert(numUniqLocsAccPerTB > 0);
   int numStorageLocs = (numLocsMult * numUniqLocsAccPerTB);
+  assert(numStorageLocs > 0);
   float * storage = (float *)malloc(sizeof(float) * numStorageLocs);
 
   fprintf(stdout, "# TBs: %d, # Ld/St: %d, # Locs Mult: %d, # Uniq Locs/TB: %d, # Storage Locs: %d\n", numTBs, NUM_LDST, numLocsMult, numUniqLocsAccPerTB, numStorageLocs);
