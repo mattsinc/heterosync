@@ -1192,7 +1192,7 @@ int main(int argc, char ** argv)
   numTBs = atoi(argv[3]);
   const int NUM_ITERS = atoi(argv[4]);
   assert(numTBs <= MAX_BLOCKS);
-  const int numTBs_perSM = (int)ceil(numTBs / NUM_SM);
+  const int numTBs_perSM = (int)ceil((float)numTBs / NUM_SM);
 
   unsigned int syncPrim = 9999;
   // set the syncPrim variable to the appropriate value based on the inputted
