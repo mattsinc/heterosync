@@ -1655,14 +1655,10 @@ int main(int argc, char ** argv)
         }
       }
       /*
-        In the non-unique microbenchmarks (4-19), all TBs on all SMs access
-        the same locations
-
-        ** NOTE: The semaphores do a reader-writer format but only the writer
-        actually writes these locations, so this checking should get the
-        right answers too.
+        In the non-unique mutex microbenchmarks (4-7), all TBs on all SMs access
+        the same locations.
       */
-      else if ((syncPrim >= 4) && (syncPrim <= 19))
+      else if ((syncPrim >= 4) && (syncPrim <= 7))
       {
         // need to iterate over the locations for each block since all TBs
         // access the same locations
@@ -1671,6 +1667,46 @@ int main(int argc, char ** argv)
           for (int i = (numUniqLocsAccPerTB-1); i >= 0; --i)
           {
             accessData_golden(storageGolden, i, numStorageLocs);
+          }
+        }
+      }
+      /*
+        In the non-unique semaphore microbenchmarks (8-19), 1 "writer" TB
+        per SM writes all the locations accessed by that SM (i.e.,
+        numUniqLocsAccPerTB * numTBs_perSM).  Moreover, all writer TBs across
+        all SMs access the same locations.
+      */
+      else if ((syncPrim <= 19) && (syncPrim >= 8))
+      {
+        int smID = 0, perSM_tbID = 0;
+        const int numSM = ((numTBs < NUM_SM) ? numTBs : NUM_SM);
+        bool isWriter = false;
+
+        // need to iterate over the locations for each TB since all TBs
+        // access the same locations
+        for (int tb = 0; tb < numTBs; ++tb)
+        {
+          smID = (tb % numSM);
+          perSM_tbID = (tb / numSM);
+          // which TB is writer varies per SM
+          isWriter = (perSM_tbID == (smID % numTBs_perSM));
+
+          if (isWriter)
+          {
+            for (int k = 0; k < numTBs_perSM; ++k)
+            {
+              // first cache line of words aren't written to
+              for (int i = (numUniqLocsAccPerTB-1); i >= 0; --i)
+              {
+                /*
+                  The locations the writer is writing are numUniqLocsAccPerTB
+                  apart because the TBs are assigned in round-robin fashion.
+                  Thus, need to shift the location accordingly.
+                */
+                currLoc = (i + (k * numUniqLocsAccPerTB)) % numStorageLocs;
+                accessData_golden(storageGolden, currLoc, numStorageLocs);
+              }
+            }
           }
         }
       }
