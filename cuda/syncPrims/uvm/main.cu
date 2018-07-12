@@ -1711,18 +1711,15 @@ int main(int argc, char ** argv)
         }
       }
       /*
-        In the unique microbenchmarks (20-36), all TBs on an SM access
+        In the unique mutex microbenchmarks (20-23), all TBs on a SM access
         the same data and the data accessed by each SM is unique.
-
-        ** NOTE: The semaphores do a reader-writer format but only the writer
-        actually writes these locations, so this checking should get the right
-        answers too.
       */
-      else
+      else if ((syncPrim <= 23) && (syncPrim >= 20))
       {
         // Some kernels only access a fraction of the total # of locations,
         // determine how many locations are accessed by each kernel here.
         numLocsAccessed = (numTBs * numUniqLocsAccPerTB);
+
         // first cache line of words aren't written to
         for (int i = (numLocsAccessed-1); i >= 0; --i)
         {
@@ -1732,10 +1729,28 @@ int main(int argc, char ** argv)
             first TB on the SM -- only for the mutexes, for semaphores this
             isn't true.
           */
-          currLoc = (((syncPrim >= 24) && (syncPrim <= 35)) ? i :
-                     (i % (NUM_SM * numUniqLocsAccPerTB)));
+          currLoc = i % (NUM_SM * numUniqLocsAccPerTB);
 
           accessData_golden(storageGolden, currLoc, numStorageLocs);
+        }
+      }
+      /*
+        In the unique semaphore microbenchmarks (24-35), 1 "writer" TB per
+        SM writes all the locations accessed by that SM, but each SM accesses
+        unique data.  We model this behavior by accessing all of the data
+        accessed by all SMs, since this has the same effect (assuming same
+        number of TBs/SM).
+      */
+      else
+      {
+        // Some kernels only access a fraction of the total # of locations,
+        // determine how many locations are accessed by each kernel here.
+        numLocsAccessed = (numTBs * numUniqLocsAccPerTB);
+
+        // first cache line of words aren't written to
+        for (int i = (numLocsAccessed-1); i >= 0; --i)
+        {
+          accessData_golden(storageGolden, i, numStorageLocs);
         }
       }
     }
