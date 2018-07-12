@@ -129,8 +129,7 @@ __global__ void kernelAtomicTreeBarrierUniq(float * storage,
   const int perSM_blockID = (blockIdx.x / numBlocksAtBarr);
   // given the gridDim.x, we can figure out how many TBs are on our SM -- assume
   // all SMs have an identical number of TBs
-  int numTBs_perSM = (gridDim.x / numBlocksAtBarr);
-  if (numTBs_perSM == 0) { ++numTBs_perSM; } // always have to have at least 1
+  int numTBs_perSM = (int)ceil((float)gridDim.x / numBlocksAtBarr);
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
@@ -179,8 +178,7 @@ __global__ void kernelAtomicTreeBarrierUniqLocalExch(float * storage,
   const int perSM_blockID = (blockIdx.x / numBlocksAtBarr);
   // given the gridDim.x, we can figure out how many TBs are on our SM -- assume
   // all SMs have an identical number of TBs
-  int numTBs_perSM = (gridDim.x / numBlocksAtBarr);
-  if (numTBs_perSM == 0) { ++numTBs_perSM; } // always have to have at least 1
+  int numTBs_perSM = (int)ceil((float)gridDim.x / numBlocksAtBarr);
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
@@ -238,8 +236,7 @@ __global__ void kernelFBSTreeBarrierUniq(float * storage,
   const int perSM_blockID = (blockIdx.x / numBlocksAtBarr);
   // given the gridDim.x, we can figure out how many TBs are on our SM -- assume
   // all SMs have an identical number of TBs
-  int numTBs_perSM = (gridDim.x/numBlocksAtBarr);
-  if (numTBs_perSM == 0) { ++numTBs_perSM; } // always have to have at least 1
+  int numTBs_perSM = (int)ceil((float)gridDim.x/numBlocksAtBarr);
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
@@ -284,8 +281,7 @@ __global__ void kernelFBSTreeBarrierUniqLocalExch(float * storage,
   const int perSM_blockID = (blockIdx.x / numBlocksAtBarr);
   // given the gridDim.x, we can figure out how many TBs are on our SM -- assume
   // all SMs have an identical number of TBs
-  int numTBs_perSM = (gridDim.x/numBlocksAtBarr);
-  if (numTBs_perSM == 0) { ++numTBs_perSM; } // always have to have at least 1
+  int numTBs_perSM = (int)ceil((float)gridDim.x/numBlocksAtBarr);
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
@@ -550,8 +546,7 @@ __global__ void kernelSpinLockSemaphore(cudaSemaphore_t sem,
   const unsigned int numSM = ((gridDim.x < NUM_SM) ? gridDim.x : NUM_SM);
   // given the gridDim.x, we can figure out how many TBs are on our SM -- assume
   // all SMs have an identical number of TBs
-  int numTBs_perSM = (gridDim.x / numSM);
-  if (numTBs_perSM == 0) { ++numTBs_perSM; } // always have to have at least 1
+  int numTBs_perSM = (int)ceil((float)gridDim.x / numSM);
   // number of threads on each TB
   //const int numThrs_perSM = (blockDim.x * numTBs_perSM);
   const int perSM_blockID = (blockIdx.x / numSM);
@@ -624,8 +619,7 @@ __global__ void kernelSpinLockSemaphoreUniq(cudaSemaphore_t sem,
   const int smID = (blockIdx.x % numSM); // mod by # SMs to get SM ID
   // given the gridDim.x, we can figure out how many TBs are on our SM -- assume
   // all SMs have an identical number of TBs
-  int numTBs_perSM = (gridDim.x / numSM);
-  if (numTBs_perSM == 0) { ++numTBs_perSM; } // always have to have at least 1
+  int numTBs_perSM = (int)ceil((float)gridDim.x / numSM);
   const int perSM_blockID = (blockIdx.x / numSM);
   // rotate which TB is the writer
   const bool isWriter = (perSM_blockID == (smID % numTBs_perSM));
@@ -695,8 +689,7 @@ __global__ void kernelEBOSemaphore(cudaSemaphore_t sem, float * storage,
   const int smID = (blockIdx.x % NUM_SM); // mod by # SMs to get SM ID
   // given the gridDim.x, we can figure out how many TBs are on our SM -- assume
   // all SMs have an identical number of TBs
-  int numTBs_perSM = (gridDim.x / numSM);
-  if (numTBs_perSM == 0) { ++numTBs_perSM; } // always have to have at least 1
+  int numTBs_perSM = (int)ceil((float)gridDim.x / numSM);
   // number of threads on each TB
   //const int numThrs_perSM = (blockDim.x * numTBs_perSM);
   const int perSM_blockID = (blockIdx.x / numSM);
@@ -768,8 +761,7 @@ __global__ void kernelEBOSemaphoreUniq(cudaSemaphore_t sem, float * storage,
   const int smID = (blockIdx.x % numSM); // mod by # SMs to get SM ID
   // given the gridDim.x, we can figure out how many TBs are on our SM -- assume
   // all SMs have an identical number of TBs
-  int numTBs_perSM = (gridDim.x / numSM);
-  if (numTBs_perSM == 0) { ++numTBs_perSM; } // always have to have at least 1
+  int numTBs_perSM = (int)ceil((float)gridDim.x / numSM);
   const int perSM_blockID = (blockIdx.x / numSM);
   // rotate which TB is the writer
   const bool isWriter = (perSM_blockID == (smID % numTBs_perSM));
