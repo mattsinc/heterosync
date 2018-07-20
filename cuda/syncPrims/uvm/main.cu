@@ -578,23 +578,26 @@ __global__ void kernelSpinLockSemaphore(cudaSemaphore_t sem,
     cudaSemaphoreSpinWait(sem, isWriter, maxSemCount,
                           gpuLockData->semaphoreBuffers, NUM_SM);
 
-    if (isWriter) { // TB 0 writes all the data that the TBs on this SM access
+    // writer writes all the data that the TBs on this SM access
+    if (isWriter) {
       for (int j = 0; j < numTBs_perSM; ++j) {
-        accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
-
         /*
           Update the writer's "location" so it writes to the locations that the
           readers will access (due to RR scheduling the next TB on this SM is
           numSM TBs away).  Use loop counter because the non-unique version
           writes the same locations on all SMs.
         */
-        tid = (((j+1) * blockDim.x) + threadIdx.x) % numStorageLocs;
+        tid = ((j * blockDim.x) + threadIdx.x);
         threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+
+        accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
       }
       // reset locations
       tid = ((perSM_blockID * blockDim.x) + threadIdx.x);
       threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
-    } else { // rest of TBs on this SM read the data written by each SM's TB 0
+    }
+    // rest of TBs on this SM read the data written by each SM's writer TB
+    else {
       accessData_semRd(storage, dummyArray, threadBaseLoc, threadOffset,
                        NUM_LDST);
     }
@@ -646,7 +649,8 @@ __global__ void kernelSpinLockSemaphoreUniq(cudaSemaphore_t sem,
     cudaSemaphoreSpinWaitLocal(sem, smID, isWriter, maxSemCount,
                                gpuLockData->semaphoreBuffers, NUM_SM);
 
-    if (isWriter) { // TB 0 writes all the data that the TBs on this SM access
+    // writer TB writes all the data that the TBs on this SM access
+    if (isWriter) {
       for (int j = 0; j < numTBs_perSM; ++j) {
         accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
 
@@ -654,6 +658,10 @@ __global__ void kernelSpinLockSemaphoreUniq(cudaSemaphore_t sem,
           update the writer's "location" so it writes to the locations that the
           readers will access (due to RR scheduling the next TB on this SM is
           numSM TBs away and < gridDim.x).
+
+          NOTE: First location writer writes to is its own location(s).  If the
+          writer is not SM 0 on this CU, it may require wrapping around to SMs
+          with smaller TB IDs.
         */
         currBlockID = (currBlockID + numSM) % gridDim.x;
         tid = ((currBlockID * blockDim.x) + threadIdx.x);
@@ -663,7 +671,9 @@ __global__ void kernelSpinLockSemaphoreUniq(cudaSemaphore_t sem,
       currBlockID = blockIdx.x;
       tid = ((currBlockID * blockDim.x) + threadIdx.x);
       threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
-    } else { // rest of TBs on this SM read the data written by each SM's TB 0
+    }
+    // rest of TBs on this SM read the data written by each SM's writer TB
+    else {
       accessData_semRd(storage, dummyArray, threadBaseLoc, threadOffset,
                        NUM_LDST);
     }
@@ -721,23 +731,26 @@ __global__ void kernelEBOSemaphore(cudaSemaphore_t sem, float * storage,
    cudaSemaphoreEBOWait(sem, isWriter, maxSemCount,
                         gpuLockData->semaphoreBuffers, NUM_SM);
 
-    if (isWriter) { // TB 0 writes all the data that the TBs on this SM access
+    // writer TB writes all the data that the TBs on this SM access
+    if (isWriter) {
       for (int j = 0; j < numTBs_perSM; ++j) {
-        accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
-
         /*
           Update the writer's "location" so it writes to the locations that the
           readers will access (due to RR scheduling the next TB on this SM is
           numSM TBs away).  Use loop counter because the non-unique version
           writes the same locations on all SMs.
         */
-        tid = (((j+1) * blockDim.x) + threadIdx.x) % numStorageLocs;
+        tid = ((j * blockDim.x) + threadIdx.x);
         threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+
+        accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
       }
       // reset locations
       tid = ((perSM_blockID * blockDim.x) + threadIdx.x);
       threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
-    } else { // rest of TBs on this SM read the data written by each SM's TB 0
+    }
+    // rest of TBs on this SM read the data written by each SM's writer TB
+    else {
       accessData_semRd(storage, dummyArray, threadBaseLoc, threadOffset,
                        NUM_LDST);
     }
@@ -788,7 +801,8 @@ __global__ void kernelEBOSemaphoreUniq(cudaSemaphore_t sem, float * storage,
     cudaSemaphoreEBOWaitLocal(sem, smID, isWriter, maxSemCount,
                               gpuLockData->semaphoreBuffers, NUM_SM);
 
-    if (isWriter) { // TB 0 writes all the data that the TBs on this SM access
+    // writer TB writes all the data that the TBs on this SM access
+    if (isWriter) {
       for (int j = 0; j < numTBs_perSM; ++j) {
         accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
 
@@ -796,6 +810,10 @@ __global__ void kernelEBOSemaphoreUniq(cudaSemaphore_t sem, float * storage,
           update the writer's "location" so it writes to the locations that the
           readers will access (due to RR scheduling the next TB on this SM is
           numSM TBs away and < gridDim.x).
+
+          NOTE: First location writer writes to is its own location(s).  If the
+          writer is not SM 0 on this CU, it may require wrapping around to SMs
+          with smaller TB IDs.
         */
         currBlockID = (currBlockID + numSM) % gridDim.x;
         tid = ((currBlockID * blockDim.x) + threadIdx.x);
@@ -805,7 +823,9 @@ __global__ void kernelEBOSemaphoreUniq(cudaSemaphore_t sem, float * storage,
       currBlockID = blockIdx.x;
       tid = ((currBlockID * blockDim.x) + threadIdx.x);
       threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
-    } else { // rest of TBs on this SM read the data written by each SM's TB 0
+    }
+    // rest of TBs on this SM read the data written by each SM's writer TB
+    else {
       accessData_semRd(storage, dummyArray, threadBaseLoc, threadOffset,
                        NUM_LDST);
     }
