@@ -4,6 +4,7 @@
 #include <math.h>
 #include "cuda_error.h"
 
+#define MAX_BACKOFF             1024
 #define NUM_THREADS_PER_BLOCK 32
 #define MAD_MUL 1.1f
 #define MAD_ADD 0.25f

@@ -15,15 +15,14 @@ inline __device__ void cudaMutexEBOLock(const cudaMutex_t mutex,
                                         const int NUM_SM)
 {
   // local variables
-  __shared__ int done, iter, backoff;
+  __shared__ int done, backoff;
   const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
                                threadIdx.z == 0);
   unsigned int * mutexHeadPtr = NULL;
 
   if (isMasterThread)
   {
-    iter = 0;
-    backoff = 10;
+    backoff = 1;
     done = 0;
     mutexHeadPtr = (mutexBufferHeads + (mutex * NUM_SM));
   }
@@ -44,15 +43,8 @@ inline __device__ void cudaMutexEBOLock(const cudaMutex_t mutex,
         // if we failed in acquiring the lock, wait for a little while before
         // trying again
         for (int j = 0; j < backoff; ++j) { ; }
-        backoff += 5; // increase backoff linearly
-        ++iter; // track how long we've been trying
-        // if we've been waiting for a long time, wrap around and try to get the
-        // lock more frequently
-        if (iter > 25)
-        {
-          iter = 0;
-          backoff = 1;
-        }
+        // (capped) exponential backoff
+        backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
       }
     }
     __syncthreads();
@@ -79,15 +71,14 @@ inline __device__ void cudaMutexEBOLockLocal(const cudaMutex_t mutex,
                                              const int NUM_SM)
 {
   // local variables
-  __shared__ int done, iter, backoff;
+  __shared__ int done, backoff;
   const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
                                threadIdx.z == 0);
   unsigned int * mutexHeadPtr = NULL;
 
   if (isMasterThread)
   {
-    iter = 0;
-    backoff = 10;
+    backoff = 1;
     done = 0;
     mutexHeadPtr = (mutexBufferHeads + ((mutex * NUM_SM) + smID));
   }
@@ -108,15 +99,8 @@ inline __device__ void cudaMutexEBOLockLocal(const cudaMutex_t mutex,
         // if we failed in acquiring the lock, wait for a little while before
         // trying again
         for (int j = 0; j < backoff; ++j) { ; }
-        backoff += 5; // increase backoff linearly
-        ++iter; // track how long we've been trying
-        // if we've been waiting for a long time, wrap around and try to get the
-        // lock more frequently
-        if (iter > 25)
-        {
-          iter = 0;
-          backoff = 1;
-        }
+        // (capped) exponential backoff
+        backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
       }
     }
     __syncthreads();

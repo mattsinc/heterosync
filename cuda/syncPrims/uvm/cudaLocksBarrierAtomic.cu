@@ -8,7 +8,6 @@ inline __device__ void cudaBarrierAtomicSub(unsigned int * globalBarr,
                                             // numBarr represents the number of
                                             // TBs going to the barrier
                                             const unsigned int numBarr,
-                                            int iter,
                                             int backoff,
                                             const bool isMasterThread)
 {
@@ -42,20 +41,13 @@ inline __device__ void cudaBarrierAtomicSub(unsigned int * globalBarr,
         *done = 1;
       }
       else { // increase backoff to avoid repeatedly hammering global barrier
-        backoff += 5; /* increase backoff linearly */
-        ++iter;
-
-        // if we've been waiting for a long time, wrap around and check stop
-        // more frequently
-        if (iter > 15) {
-          iter = 0;
-          backoff = 1;
-        }
+        // (capped) exponential backoff
+        backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
       }
     }
     __syncthreads();
 
-    // do linear backoff to reduce the number of times we pound the global
+    // do exponential backoff to reduce the number of times we pound the global
     // barrier
     if (!*done) {
       for (int i = 0; i < backoff; ++i) { ; }
@@ -73,18 +65,17 @@ inline __device__ void cudaBarrierAtomic(unsigned int * barrierBuffers,
   unsigned int * atomic1 = barrierBuffers;
   unsigned int * atomic2 = atomic1 + 1;
   __shared__ int done1, done2;
-  __shared__ int iter, backoff;
+  __shared__ int backoff;
 
   if (isMasterThread) {
-    iter = 0;
-    backoff = 10;
+    backoff = 1;
   }
   __syncthreads();
 
-  cudaBarrierAtomicSub(atomic1, &done1, numBarr, iter, backoff, isMasterThread);
+  cudaBarrierAtomicSub(atomic1, &done1, numBarr, backoff, isMasterThread);
   // second barrier is necessary to provide a facesimile for a sense-reversing
   // barrier
-  cudaBarrierAtomicSub(atomic2, &done2, numBarr, iter, backoff, isMasterThread);
+  cudaBarrierAtomicSub(atomic2, &done2, numBarr, backoff, isMasterThread);
 }
 
 // does local barrier amongst all of the TBs on an SM

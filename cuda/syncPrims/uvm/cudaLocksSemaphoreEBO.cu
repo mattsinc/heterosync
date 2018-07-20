@@ -142,15 +142,14 @@ inline __device__ void cudaSemaphoreEBOWait(const cudaSemaphore_t sem,
                                             unsigned int * semaphoreBuffers,
                                             const int NUM_SM)
 {
-  __shared__ int iter, backoff;
+  __shared__ int backoff;
   const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
                                threadIdx.z == 0);
   volatile __shared__ int dummySum;
 
   if (isMasterThread)
   {
-    iter = 0;
-    backoff = 10;
+    backoff = 1;
     dummySum = 0;
   }
   __syncthreads();
@@ -168,14 +167,11 @@ inline __device__ void cudaSemaphoreEBOWait(const cudaSemaphore_t sem,
         the CS currently -- most important for non-unique because all TBs on
         all SMs are going for the same semaphore.
       */
-      if (isWriter) { backoff += 250;  }
-      else { backoff += 5; /* small, linear backoff increase for readers */ }
-      ++iter; // track how long we've been trying
-      if (iter > 25)
-      {
-        iter = 0;
-        backoff = 1;
+      if (isWriter) {
+        // (capped) exponential backoff
+        backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
       }
+      else { backoff += 5; /* small, linear backoff increase for readers */ }
     }
     __syncthreads();
   }
@@ -367,15 +363,14 @@ inline __device__ void cudaSemaphoreEBOWaitLocal(const cudaSemaphore_t sem,
                                                  unsigned int * semaphoreBuffers,
                                                  const int NUM_SM)
 {
-  __shared__ int iter, backoff;
+  __shared__ int backoff;
   const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
                                threadIdx.z == 0);
   volatile __shared__ int dummySum;
 
   if (isMasterThread)
   {
-    iter = 0;
-    backoff = 10;
+    backoff = 1;
     dummySum = 0;
   }
   __syncthreads();
@@ -388,13 +383,8 @@ inline __device__ void cudaSemaphoreEBOWaitLocal(const cudaSemaphore_t sem,
       // if we failed to enter the semaphore, wait for a little while before
       // trying again
       for (int j = 0; j < backoff; ++j) { dummySum += j; }
-      backoff += 5; /* small, linear backoff increase */
-      ++iter; // track how long we've been trying
-      if (iter > 25)
-      {
-        iter = 0;
-        backoff = 1;
-      }
+      // (capped) exponential backoff
+      backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
     }
     __syncthreads();
   }
