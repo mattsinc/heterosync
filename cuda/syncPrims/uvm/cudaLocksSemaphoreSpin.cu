@@ -178,12 +178,12 @@ inline __device__ void cudaSemaphoreSpinPost(const cudaSemaphore_t sem,
         hopefully won't affect performance too much.
       */
       // try to acquire sem head lock
-      if (atomicCAS(lock, 0, 1) == 1) { acquired = false; }
-      else                            {
+      if (atomicCAS(lock, 0, 1) == 0) {
         // atomicCAS acts as a load acquire, need TF to enforce ordering
         __threadfence();
         acquired = true;
       }
+      else                            { acquired = false; }
     }
     __syncthreads();
   }
@@ -370,12 +370,12 @@ inline __device__ void cudaSemaphoreSpinPostLocal(const cudaSemaphore_t sem,
         hopefully won't affect performance too much.
       */
       // try to acquire sem head lock
-      if (atomicCAS(lock, 0, 1) == 1) {
+      if (atomicCAS(lock, 0, 1) == 0) {
         // atomicCAS acts as a load acquire, need TF to enforce ordering locally
         __threadfence_block();
-        acquired = false;
+        acquired = true;
       }
-      else                            { acquired = true; }
+      else                            { acquired = false; }
     }
     __syncthreads();
   }

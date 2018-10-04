@@ -204,12 +204,12 @@ inline __device__ void cudaSemaphoreEBOPost(const cudaSemaphore_t sem,
     if (isMasterThread)
     {
       // try to acquire sem head "lock"
-      if (atomicCAS(lock, 0, 1) == 1) {
+      if (atomicCAS(lock, 0, 1) == 0) {
         // atomicCAS acts as a load acquire, need TF to enforce ordering
         __threadfence();
-        acquired = false;
+        acquired = true;
       }
-      else                            { acquired = true; }
+      else                            { acquired = false; }
     }
     __syncthreads();
   }
@@ -416,12 +416,12 @@ inline __device__ void cudaSemaphoreEBOPostLocal(const cudaSemaphore_t sem,
     if (isMasterThread)
     {
       // try to acquire sem head "lock"
-      if (atomicCAS(lock, 0, 1) == 1) {
+      if (atomicCAS(lock, 0, 1) == 0) {
         // atomicCAS acts as a load acquire, need TF to enforce ordering locally
         __threadfence_block();
-        acquired = false;
+        acquired = true;
       }
-      else                            { acquired = true; }
+      else                            { acquired = false; }
     }
     __syncthreads();
   }
