@@ -1254,7 +1254,7 @@ int main(int argc, char ** argv)
 
   // multiply number of mutexes, semaphores by NUM_SM to
   // allow per-core locks
-  cudaLocksInit(MAX_BLOCKS, 8 * NUM_SM, 24 * NUM_SM, NUM_SM);
+  cudaLocksInit(MAX_BLOCKS, 8 * NUM_SM, 24 * NUM_SM, pageAlign, NUM_SM);
 
   cudaErr = cudaGetLastError();
   checkError(cudaErr, "After cudaLocksInit");
