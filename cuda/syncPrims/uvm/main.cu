@@ -1139,7 +1139,7 @@ int main(int argc, char ** argv)
 			"\t\tlfTreeBarrUniq - Lock-Free Tree Barrier\n"
 			"\t\tlfTreeBarrUniqLocalExch - Lock-Free Tree Barrier with local exchange\n"
 			"\t\tspinMutex - Spin Lock Mutex\n"
-			"\t\tspinMutexEBO - Spin Lock Mutex with Backoff\n
+			"\t\tspinMutexEBO - Spin Lock Mutex with Backoff\n"
 			"\t\tsleepMutex - Sleep Mutex\n"
 			"\t\tfaMutex - Fetch-and-Add Mutex\n"
 			"\t\tspinSem1 - Spin Semaphore (Max: 1)\n"
