@@ -1,9 +1,9 @@
-These files are provided AS IS, and can be improved in many aspects. While we performed some performance optimization, there is more to be done. We do not claim that this is the most optimal implementation. The code is presented as a representative case of a CUDA implementation of these workloads only.  It is NOT meant to be interpreted as a definitive answer to how well this application can perform on GPUs or CUDA.  If any of you are interested in improving the performance of these benchmarks, please let us know or submit a pull request on GitHub.
+These files are provided AS IS, and can be improved in many aspects. While we performed some performance optimization, there is more to be done. We do not claim that this is the most optimal implementation. The code is presented as a representative case of a CUDA and HIP implementations of these workloads only.  It is NOT meant to be interpreted as a definitive answer to how well this application can perform on GPUs, CUDA, or HIP.  If any of you are interested in improving the performance of these benchmarks, please let us know or submit a pull request on GitHub.
 
 BACKGROUND INFORMATION
 ----------------------
 
-Structure: All of the HeteroSync microbenchmarks are run from a single main function.  Each of the microbenchmarks has a separate .cu (CUDA) file that contains the code for its lock and unlock functions.
+Structure: All of the HeteroSync microbenchmarks are run from a single main function.  Each of the microbenchmarks has a separate .cu (CUDA) file that contains the code for its lock and unlock functions.  In the HIP version, these files are header files, because of HIP's requirements for compilation.
 
 Contents: The following Synchronization Primitives (SyncPrims) microbenchmarks are included in HeteroSync:
 
@@ -28,7 +28,7 @@ USAGE
 
 Compilation:
 
-Since all of the microbenchmarks run from a single main function, users only need to compile the entire suite once in order to use any of the microbenchmarks.  You will need to set CUDA_DIR in the Makefile in order to properly compile the code.
+Since all of the microbenchmarks run from a single main function, users only need to compile the entire suite once in order to use any of the microbenchmarks.  You will need to set CUDA_DIR in the Makefile in order to properly compile the code.  To use HIP, you will need to set HIP_PATH for compilation to work correctly.
 
 Running:
 
@@ -78,9 +78,9 @@ The usage of the microbenchmarks is as follows:
 IISWC '17 VERSION
 -----------------
 
-The version used in our IISWC '17 paper assumes a unifed address space between the CPU and GPU.  Thus, it does not require any copies.  Moreover, this version is based on CUDA SDK 3.1, as this is the last version of CUDA that is fully supported by GPGPU-Sim as of the release.  Later versions of CUDA allow additional C++ features, which may simplify the code or allow other optimizations.  Finally, this version is designed to run in the DeNovo ecosystem, which simulates a unified address space with multiple CPU cores and GPU CUs using a combination of Simics, GEMS, Garnet, and GPGPU-Sim.  In this ecosystem, we assume a SC-for-DRF style memory consistency model.  SC-for-DRF's ordering requirements are enforced by the epilogues and atomic operations.  We assume that the epilogues will self-invalidate all valid data in the local (L1) caches and flush per-CU/core store buffers to write through or obtain ownership for dirty data.
+The version used in our IISWC '17 paper assumes a unified address space between the CPU and GPU.  Thus, it does not require any copies.  Moreover, this version is based on CUDA SDK 3.1 and HIP version 1.6, as this is the last version of CUDA that is fully supported by GPGPU-Sim and gem5, respectively, as of the release.  Later versions of CUDA and HIP allow additional C++ features, which may simplify the code or allow other optimizations.  Finally, this version is designed to run in the DeNovo ecosystem, which simulates a unified address space with multiple CPU cores and GPU CUs using a combination of Simics, GEMS, Garnet, and GPGPU-Sim.  In this ecosystem, we assume a SC-for-DRF style memory consistency model.  SC-for-DRF's ordering requirements are enforced by the epilogues and atomic operations.  We assume that the epilogues will self-invalidate all valid data in the local (L1) caches and flush per-CU/core store buffers to write through or obtain ownership for dirty data.
 
-Similarly, to enforce the appropriate ordering requirements, we assume that the CUDA atomic operations have specific semantics:
+Similarly, to enforce the appropriate ordering requirements, we assume that the CUDA and HIP atomic operations have specific semantics:
  
 Atomic      | Reprogrammed? | Load Acquire | Store Release |  Unpaired  |
 atomicAdd   |               |              |               | X (LD, ST) |
@@ -95,25 +95,30 @@ atomicAnd   |      X        |              |               | X (LD, ST) |
 atomicOr    |      X        |              |               | X (LD, ST) |
 atomicXor   |      X        |    X (LD)    |               |            |
 
-If your ecosystem does not make the same assumptions, then you will need to add the appropriate fences (e.g., CUDA's __threadfence() and __threadfence_block()) to ensure the proper ordering of requests in the memory system.
+If your ecosystem does not make the same assumptions, then you will need to add the appropriate fences (e.g., CUDA's __threadfence() and __threadfence_block()) to ensure the proper ordering of requests in the memory system.  In the case of the HIP implementation, you may be able to use some OpenCL atomics with the desired orderings, but we left it as is to ensure portability and correctness with future versions of HIP that may not support this feature.
 
 Reprogrammed Atomics:
 
-In addition to the above assumptions about semantics for a given CUDA atomic, we have also reprogrammed some of the CUDA atomics to provide certain functionality we needed that CUDA doesn't provide:
+In addition to the above assumptions about semantics for a given atomic, we have also reprogrammed some of the CUDA atomics to provide certain functionality we needed that CUDA doesn't provide:
 
 - atomicAnd() was reprogrammed to have the same functionality as an atomicInc() but without store release semantics (i.e., atomicInc has store release semantics, atomicAnd does not).  We chose atomicAnd() for this because it was not used in any of our applications.  This change was necessary because atomicInc() sometimes needs store release semantics.
 - atomicXor() was reprogrammed to do an atomic load (instead of an atomic RMW).
 - atomicOr() was reprogrammed to do an (unpaired) atomic store (instead of an atomic RMW).  We chose atomicOr for the symmetry with atomicXor and because no applications used it.
-- atomicExch() was not reprogrammed in the simulator, but we have repurposed it assuming that the value returned by the atomicExch() is never returned or used in the program.  This allows us to treat atomicExch() as if it were an atomic store.  Thus, the programmer should consider an atomicExch() to be an atomic store.  All of the applications we have encountered thus far already did this.  In the simulator, we account for the read on the timing and functional sides.
+- atomicExch() was not reprogrammed in the simulator, but we have re-purposed it assuming that the value returned by the atomicExch() is never returned or used in the program.  This allows us to treat atomicExch() as if it were an atomic store.  Thus, the programmer should consider an atomicExch() to be an atomic store.  All of the applications we have encountered thus far already did this.  In the simulator, we account for the read on the timing and functional sides.
 
 Instruction-Centric vs. Data-Centric:
 
-Common programming languages like C++ and OpenCL, which use a data-centric approach.  These languages identify atomic accesses by “tagging” a variable with the atomic qualifier.  These languages use an instruction-centric method for identifying which atomic accesses can/should use relaxed atomics instead of SC atomics; the accesses that can be relaxed have “memory_order_relaxed” appended to their accesses.  Since CUDA does not provide support for the same framework as C++ and OpenCL, we had to make a design decision about how to identify atomic accesses and how to identify which of those atomic accesses can use relaxed atomics vs. SC atomics.  We chose to use an instruction-centric method for identifying atomic vs. non-atomic accesses.  In this method, we designate certain CUDA atomic instructions as being load acquires, store releases, or unpaired (as denoted above).  Moreover, note that CUDA does not have direct support for atomic loads or stores.
+Common programming languages like C++ and OpenCL, which use a data-centric approach.  These languages identify atomic accesses by “tagging” a variable with the atomic qualifier.  These languages use an instruction-centric method for identifying which atomic accesses can/should use relaxed atomics instead of SC atomics; the accesses that can be relaxed have “memory_order_relaxed” appended to their accesses.  Since CUDA does not provide support for the same framework as C++ and OpenCL, we had to make a design decision about how to identify atomic accesses and how to identify which of those atomic accesses can use relaxed atomics vs. SC atomics.  We chose to use an instruction-centric method for identifying atomic vs. non-atomic accesses.  In this method, we designate certain CUDA atomic instructions as being load acquires, store releases, or unpaired (as denoted above).  Moreover, note that CUDA does not have direct support for atomic loads or stores.  HIP does support these, but only with OpenCL commands.
 
 CUDA UVM VERSION
 ----------------
 
 The CUDA UVM version is based on CUDA SDK 6.0, and uses CUDA's unified virtual memory to avoid making explicit copies of some of the arrays and structures.  Unlike the IISWC '17 version, this version does not make any assumptions about ordering atomics provide.  Nor does it require epilogues.  Instead, it adds the appropriate CUDA fence commands around atomic accesses to ensure the SC-for-DRF ordering is provided.  This version has been tested on a Pascal P100 GPU, but has not been tested as rigorously as the IISWC '17 version.
+
+HIP UVM VERSION
+----------------
+
+The HIP UVM version is based on HIP 1.6, and uses HIP's unified virtual memory to avoid making explicit copies of some of the arrays and structures.  Unlike the IISWC '17 version, this version does not make any assumptions about ordering atomics provide.  Nor does it require epilogues.  Instead, it adds the appropriate HIP fence commands around atomic accesses to ensure the SC-for-DRF ordering is provided.  This version has been tested on a Vega 56 GPU, but has not been tested as rigorously as the IISWC '17 version.
 
 CITATION
 --------
