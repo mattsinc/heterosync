@@ -22,9 +22,9 @@ inline __device__ void hipMutexFALock(const hipMutex_t mutex,
   __shared__ bool haveLock;
   const unsigned int maxTurnNum = 1000000000;
 
-  unsigned int * const ticketNumber = mutexBufferHeads + (mutex * NUM_SM);
-  volatile unsigned int * const turnNumber =
-      (volatile unsigned int * )mutexBufferTails + (mutex * NUM_SM);
+  unsigned int * ticketNumber = mutexBufferHeads + (mutex * NUM_SM);
+  unsigned int * turnNumber =
+      (unsigned int * )mutexBufferTails + (mutex * NUM_SM);
 
   __syncthreads();
   if (isMasterThread)
@@ -38,7 +38,7 @@ inline __device__ void hipMutexFALock(const hipMutex_t mutex,
   {
     if (isMasterThread)
     {
-      unsigned int currTicketNum = *turnNumber;
+      unsigned int currTicketNum = atomicAdd(turnNumber, 0);
 
       // it's my turn, I get the lock now
       if (currTicketNum == myTicketNum) {
@@ -58,7 +58,7 @@ inline __device__ void hipMutexFAUnlock(const hipMutex_t mutex,
   const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
                                hipThreadIdx_z == 0);
   const unsigned int maxTurnNum = 1000000000;
-  unsigned int * const turnNumber = mutexBufferTails + (mutex * NUM_SM);
+  unsigned int * turnNumber = mutexBufferTails + (mutex * NUM_SM);
 
   __syncthreads();
   if (isMasterThread) {
@@ -88,10 +88,10 @@ inline __device__ void hipMutexFALockLocal(const hipMutex_t mutex,
   __shared__ bool haveLock;
   const unsigned int maxTurnNum = 100000000;
 
-  unsigned int * const ticketNumber = mutexBufferHeads + ((mutex * NUM_SM) +
+  unsigned int * ticketNumber = mutexBufferHeads + ((mutex * NUM_SM) +
                                                           smID);
-  volatile unsigned int * const turnNumber =
-      (volatile unsigned int *)mutexBufferTails + ((mutex * NUM_SM) + smID);
+  unsigned int * turnNumber =
+      (unsigned int *)mutexBufferTails + ((mutex * NUM_SM) + smID);
 
   __syncthreads();
   if (isMasterThread)
@@ -104,7 +104,7 @@ inline __device__ void hipMutexFALockLocal(const hipMutex_t mutex,
   {
     if (isMasterThread)
     {
-      unsigned int currTicketNum = *turnNumber;
+      unsigned int currTicketNum = atomicAdd(turnNumber, 0);
 
       // it's my turn, I get the lock now
       if (currTicketNum == myTicketNum) {
@@ -127,7 +127,7 @@ inline __device__ void hipMutexFAUnlockLocal(const hipMutex_t mutex,
                                hipThreadIdx_z == 0);
   const unsigned int maxTurnNum = 100000000;
 
-  unsigned int * const turnNumber = mutexBufferTails + ((mutex * NUM_SM) + smID);
+  unsigned int * turnNumber = mutexBufferTails + ((mutex * NUM_SM) + smID);
 
   __syncthreads();
   if (isMasterThread) {
