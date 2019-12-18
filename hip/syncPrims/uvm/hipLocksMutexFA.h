@@ -64,7 +64,12 @@ inline __device__ void hipMutexFAUnlock(const hipMutex_t mutex,
   if (isMasterThread) {
     // atomicInc acts as a store release, need TF to enforce ordering
     __threadfence();
-    atomicInc(turnNumber, maxTurnNum);
+	/*
+	  HIP currently doesn't generate the correct code for atomicInc's here,
+	  so replace with an atomicAdd of 1 and assume no wraparound
+	*/
+    //atomicInc(turnNumber, maxTurnNum);
+	atomicAdd(turnNumber, 1);
   }
   __syncthreads();
 }
@@ -128,7 +133,12 @@ inline __device__ void hipMutexFAUnlockLocal(const hipMutex_t mutex,
   if (isMasterThread) {
     // atomicInc acts as a store release, need TF to enforce ordering locally
     __threadfence_block();
-    atomicInc(turnNumber, maxTurnNum);
+	/*
+	  HIP currently doesn't generate the correct code for atomicInc's here,
+	  so replace with an atomicAdd of 1 and assume no wraparound
+	*/
+    //atomicInc(turnNumber, maxTurnNum);
+	atomicAdd(turnNumber, 1);
   }
   __syncthreads();
 }

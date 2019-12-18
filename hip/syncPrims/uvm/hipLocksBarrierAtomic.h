@@ -21,7 +21,12 @@ inline __device__ void hipBarrierAtomicSub(unsigned int * globalBarr,
     __threadfence();
     // atomicInc effectively adds 1 to atomic for each TB that's part of the
     // global barrier.
-    atomicInc(globalBarr, 0x7FFFFFFF);
+	/*
+	  HIP currently doesn't generate the correct code for atomicInc's here,
+	  so replace with an atomicAdd of 1 and assume no wraparound
+	*/
+    //atomicInc(globalBarr, 0x7FFFFFFF);
+    atomicAdd(globalBarr, 1);
   }
   __syncthreads();
 
@@ -96,7 +101,12 @@ inline __device__ void hipBarrierAtomicSubLocal(unsigned int * perSMBarr,
       barrier.  For the local barrier, this requires using the per-CU
       locations.
     */
-    atomicInc(perSMBarr, 0x7FFFFFFF);
+	/*
+	  HIP currently doesn't generate the correct code for atomicInc's here,
+	  so replace with an atomicAdd of 1 and assume no wraparound
+	*/
+    //atomicInc(perSMBarr, 0x7FFFFFFF);
+    atomicAdd(perSMBarr, 1);
   }
   __syncthreads();
 
