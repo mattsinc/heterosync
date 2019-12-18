@@ -1,4 +1,4 @@
-EXECUTABLE := allSyncPrims-1kernel.hip
+EXECUTABLE := allSyncPrims-1kernel
 HIP_PATH ?= /opt/rocm/hip
 SRC := $(wildcard *.hip.cpp)
 
