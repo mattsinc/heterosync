@@ -1,16 +1,15 @@
 #include "hipLocks.h"
 
-hipError_t hipLocksInit(const int maxBlocksPerKernel, const int numMutexes,
-                          const int numSemaphores,
-                          const bool pageAlign, /* const region_t locksReg*/
-                          const int NUM_SM)
+hipError_t hipLocksInit(const int maxWGsPerKernel, const int numMutexes,
+                        const int numSemaphores, const bool pageAlign,
+                        const int NUM_CU)
 {
   hipError_t hipErr = hipGetLastError();
   checkError(hipErr, "Start hipLocksInit");
 
   hipHostMalloc(&cpuLockData, sizeof(hipLockData_t));
 
-  if (maxBlocksPerKernel <= 0)    return hipErrorInitializationError;
+  if (maxWGsPerKernel <= 0)       return hipErrorInitializationError;
   if (numMutexes <= 0)            return hipErrorInitializationError;
   if (numSemaphores <= 0)         return hipErrorInitializationError;
 
@@ -34,7 +33,7 @@ hipError_t hipLocksInit(const int maxBlocksPerKernel, const int numMutexes,
   hipEventCreate(&end);
 
   hipErr = hipGetLastError();
-  checkError(hipErr, "Before memset");
+  checkError(hipErr, "Before memsets");
 
   hipDeviceSynchronize();
   hipEventRecord(start, 0);
@@ -50,11 +49,11 @@ hipError_t hipLocksInit(const int maxBlocksPerKernel, const int numMutexes,
   /*
     initialize mutexBuffers to appropriate values
 
-    set the first location for each SM to 1 so that the ring buffer can be
-    used by the first TB right away (otherwise livelock because no locations
+    set the first location for each CU to 1 so that the ring buffer can be
+    used by the first WG right away (otherwise livelock because no locations
     ever == 1)
 
-    for all other locations initialize to -1 so TBs for these locations
+    for all other locations initialize to -1 so WGs for these locations
     don't think it's their turn right away
 
     since hipMemset sets everything in bytes, initialize all to 0 first

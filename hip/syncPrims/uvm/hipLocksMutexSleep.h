@@ -4,7 +4,8 @@
 #include "hip/hip_runtime.h"
 #include "hipLocks.h"
 
-inline __host__ hipError_t hipMutexCreateSleep(hipMutex_t * const handle, const int mutexNumber)
+inline __host__ hipError_t hipMutexCreateSleep(hipMutex_t * const handle,
+                                               const int mutexNumber)
 {
   *handle = mutexNumber;
   return hipSuccess;
@@ -16,14 +17,14 @@ inline __host__ hipError_t hipMutexCreateSleep(hipMutex_t * const handle, const 
   buffer to see if it's been set to 1 -- when it has, it is our turn.  When
   we're done, unset our location and set the next location to 1.
 
-  locks the mutex. must be called by the entire block.
+  locks the mutex. must be called by the entire WG.
 */
 __device__ unsigned int hipMutexSleepLock(const hipMutex_t mutex,
                                           int * mutexBuffers,
                                           unsigned int * mutexBufferTails,
                                           const int maxRingBufferSize,
                                           const int arrayStride,
-                                          const int NUM_SM)
+                                          const int NUM_CU)
 {
   __syncthreads();
 
@@ -82,13 +83,13 @@ __device__ void hipMutexSleepUnlock(const hipMutex_t mutex,
                                     unsigned int myBufferLoc,
                                     const int maxRingBufferSize,
                                     const int arrayStride,
-                                    const int NUM_SM)
+                                    const int NUM_CU)
 {
   __syncthreads();
 
   const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
                                hipThreadIdx_z == 0);
-  int * ringBuffer = (int * )mutexBuffers + (mutex * NUM_SM) * arrayStride;
+  int * ringBuffer = (int * )mutexBuffers + (mutex * NUM_CU) * arrayStride;
   // next location is 0 if we're the last location in the buffer (wraparound)
   const unsigned int nextBufferLoc = ((myBufferLoc >= maxRingBufferSize) ? 0 :
                                       myBufferLoc + 1);
@@ -98,7 +99,7 @@ __device__ void hipMutexSleepUnlock(const hipMutex_t mutex,
     // set my ring buffer location to -1
     atomicExch((int *)(ringBuffer + myBufferLoc), -1);
 
-    // set the next location in the ring buffer to 1 so that next TB in line
+    // set the next location in the ring buffer to 1 so that next WG in line
     // can get the lock now
     atomicExch((int *)ringBuffer + nextBufferLoc, 1);
 
@@ -108,25 +109,24 @@ __device__ void hipMutexSleepUnlock(const hipMutex_t mutex,
   __syncthreads();
 }
 
-// same algorithm but uses per-SM lock
+// same algorithm but uses per-CU lock
 __device__ unsigned int hipMutexSleepLockLocal(const hipMutex_t mutex,
-                                               const unsigned int smID,
+                                               const unsigned int cuID,
                                                int * mutexBuffers,
                                                unsigned int * mutexBufferTails,
                                                const int maxRingBufferSize,
                                                const int arrayStride,
-                                               const int NUM_SM)
+                                               const int NUM_CU)
 {
   __syncthreads();
 
   // local variables
   const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
                                hipThreadIdx_z == 0);
-  unsigned int * const ringBufferTailPtr = mutexBufferTails + ((mutex * NUM_SM) +
-                                                               smID);
-  // since this just assigns a pointer, should be ok even though it's volatile
-  volatile int * const ringBuffer = (volatile int * )mutexBuffers +
-                                    ((mutex * NUM_SM) + smID) * arrayStride;
+  unsigned int * const ringBufferTailPtr = mutexBufferTails + ((mutex * NUM_CU) +
+                                                               cuID);
+  int * const ringBuffer = (int * )mutexBuffers +
+    ((mutex * NUM_CU) + cuID) * arrayStride;
 
   __shared__ unsigned int myRingBufferLoc;
   __shared__ bool haveLock;
@@ -165,20 +165,20 @@ __device__ unsigned int hipMutexSleepLockLocal(const hipMutex_t mutex,
 }
 
 // to unlock, simply increment the ring buffer's head pointer -- same algorithm
-// but uses per-SM lock.
+// but uses per-CU lock.
 __device__ void hipMutexSleepUnlockLocal(const hipMutex_t mutex,
-                                         const unsigned int smID,
+                                         const unsigned int cuID,
                                          int * mutexBuffers,
                                          unsigned int myBufferLoc,
                                          const int maxRingBufferSize,
                                          const int arrayStride,
-                                         const int NUM_SM)
+                                         const int NUM_CU)
 {
   __syncthreads();
 
   const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
                                hipThreadIdx_z == 0);
-  int * ringBuffer = (int * )mutexBuffers + ((mutex * NUM_SM) + smID) *
+  int * ringBuffer = (int * )mutexBuffers + ((mutex * NUM_CU) + cuID) *
                      arrayStride;
   // next location is 0 if we're the last location in the buffer (wraparound)
   const unsigned int nextBufferLoc = ((myBufferLoc >= maxRingBufferSize) ? 0 :
@@ -189,7 +189,7 @@ __device__ void hipMutexSleepUnlockLocal(const hipMutex_t mutex,
     // set my ring buffer location to -1
     atomicExch((int *)(ringBuffer + myBufferLoc), -1);
 
-    // set the next location in the ring buffer to 1 so that next TB in line
+    // set the next location in the ring buffer to 1 so that next WG in line
     // can get the lock now
     atomicExch((int *)ringBuffer + nextBufferLoc, 1);
 
