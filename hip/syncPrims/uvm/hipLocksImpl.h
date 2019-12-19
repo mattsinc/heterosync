@@ -56,10 +56,14 @@ hipError_t hipLocksInit(const int maxBlocksPerKernel, const int numMutexes,
 
     for all other locations initialize to -1 so TBs for these locations
     don't think it's their turn right away
+
+    since hipMemset sets everything in bytes, initialize all to 0 first
   */
+  hipMemset(&(cpuLockData->mutexBuffers[0]), 0,
+            cpuLockData->arrayStride * cpuLockData->mutexCount * sizeof(int));
   for (int i = 0; i < (cpuLockData->arrayStride * cpuLockData->mutexCount);
        i += cpuLockData->arrayStride) {
-    hipMemset(&(cpuLockData->mutexBuffers[i]), 1, sizeof(int));
+    hipMemset(&(cpuLockData->mutexBuffers[i]), 0x0001, 1);
     hipMemset(&(cpuLockData->mutexBuffers[i + 1]), -1,
               (cpuLockData->arrayStride - 1) * sizeof(int));
   }
