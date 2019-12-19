@@ -32,9 +32,8 @@ __device__ unsigned int hipMutexSleepLock(const hipMutex_t mutex,
   const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
                                hipThreadIdx_z == 0);
 
-  unsigned int * const ringBufferTailPtr = mutexBufferTails + (mutex * NUM_SM);
-  // since this just assigns a pointer, should be ok even though it's volatile
-  volatile int * const ringBuffer = (volatile int *)mutexBuffers + (mutex * NUM_SM) * arrayStride;
+  unsigned int * const ringBufferTailPtr = mutexBufferTails + (mutex * NUM_CU);
+  int * const ringBuffer = (int *)mutexBuffers + (mutex * NUM_CU) * arrayStride;
 
   __shared__ unsigned int myRingBufferLoc;
   __shared__ bool haveLock;
@@ -61,10 +60,9 @@ __device__ unsigned int hipMutexSleepLock(const hipMutex_t mutex,
     if (isMasterThread)
     {
       // spin waiting for our location in the ring buffer to == 1.
-      if (ringBuffer[myRingBufferLoc] == 1)
-      //if (atomicAdd((int *)ringBuffer + myRingBufferLoc, 0) == 1)
+      if (atomicAdd(&ringBuffer[myRingBufferLoc], 0) == 1)
       {
-        // volatile load acts as a load acquire, need TF to enforce ordering
+        // atomicAdd (load) acts as a load acquire, need TF to enforce ordering
         __threadfence();
 
         // When our location in the ring buffer == 1, we have the lock
@@ -149,9 +147,9 @@ __device__ unsigned int hipMutexSleepLockLocal(const hipMutex_t mutex,
     if (isMasterThread)
     {
       // spin waiting for our location in the ring buffer to == 1.
-      if (ringBuffer[myRingBufferLoc] == 1)
+      if (atomicAdd(&ringBuffer[myRingBufferLoc], 0) == 1)
       {
-        // volatile load acts as a load acquire, need TF to enforce ordering locally
+        // atomicAdd (load) acts as a load acquire, need TF to enforce ordering locally
         __threadfence_block();
 
         // When our location in the ring buffer == 1, we have the lock
