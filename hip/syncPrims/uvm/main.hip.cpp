@@ -10,7 +10,7 @@
 #define MAD_MUL 1.1f
 #define MAD_ADD 0.25f
 #define NUM_WORDS_PER_CACHELINE 16
-#define NUM_THREADS_PER_HALFWARP 16
+#define NUM_THREADS_PER_QUARTERWAVE 16
 
 // separate .h files
 #include "hipLocksBarrier.h"
@@ -38,7 +38,7 @@ void accessData_golden(float * storageGolden, int currLoc, int numStorageLocs)
     thread, update it -- each half-warp accesses (NUM_LDST + 1) cache
     lines.
   */
-  if (currLoc % (NUM_THREADS_PER_HALFWARP * (NUM_LDST + 1)) >=
+  if (currLoc % (NUM_THREADS_PER_QUARTERWAVE * (NUM_LDST + 1)) >=
       NUM_WORDS_PER_CACHELINE)
   {
     assert((currLoc - NUM_WORDS_PER_CACHELINE) >= 0);
