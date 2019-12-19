@@ -1,5 +1,5 @@
-#ifndef __HIPSEMAPHOREEBO_CU__
-#define __HIPSEMAPHOREEBO_CU__
+#ifndef __HIPSEMAPHOREEBO_H__
+#define __HIPSEMAPHOREEBO_H__
 
 #include "hip/hip_runtime.h"
 
@@ -450,4 +450,4 @@ inline __device__ void hipSemaphoreEBOPostLocal(const hipSemaphore_t sem,
   __syncthreads();
 }
 
-#endif // #ifndef __HIPSEMAPHOREEBO_CU__
+#endif // #ifndef __HIPSEMAPHOREEBO_H__

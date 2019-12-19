@@ -1,5 +1,5 @@
-#ifndef __HIPLOCKSSEMAPHORESPIN_CU__
-#define __HIPLOCKSSEMAPHORESPIN_CU__
+#ifndef __HIPLOCKSSEMAPHORESPIN_H__
+#define __HIPLOCKSSEMAPHORESPIN_H__
 
 #include "hip/hip_runtime.h"
 #include "hipLocks.h"
@@ -405,4 +405,4 @@ inline __device__ void hipSemaphoreSpinPostLocal(const hipSemaphore_t sem,
   __syncthreads();
 }
 
-#endif // #ifndef __HIPLOCKSSEMAPHORESPIN_CU__
+#endif // #ifndef __HIPLOCKSSEMAPHORESPIN_H__

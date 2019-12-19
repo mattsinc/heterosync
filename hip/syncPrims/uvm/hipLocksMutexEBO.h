@@ -1,5 +1,5 @@
-#ifndef __HIPLOCKSMUTEXEBO_CU__
-#define __HIPLOCKSMUTEXEBO_CU__
+#ifndef __HIPLOCKSMUTEXEBO_H__
+#define __HIPLOCKSMUTEXEBO_H__
 
 #include "hip/hip_runtime.h"
 #include "hipLocks.h"

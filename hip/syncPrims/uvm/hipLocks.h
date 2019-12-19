@@ -1,5 +1,5 @@
-#ifndef __HIPLOCKS_CU__
-#define __HIPLOCKS_CU__
+#ifndef __HIPLOCKS_H__
+#define __HIPLOCKS_H__
 
 typedef struct hipLockData
 {

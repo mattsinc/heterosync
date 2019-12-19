@@ -1,5 +1,5 @@
-#ifndef __HIPLOCKSBARRIERATOMIC_CU__
-#define __HIPLOCKSBARRIERATOMIC_CU__
+#ifndef __HIPLOCKSBARRIERATOMIC_H__
+#define __HIPLOCKSBARRIERATOMIC_H__
 
 #include "hip/hip_runtime.h"
 #include "hipLocks.h"

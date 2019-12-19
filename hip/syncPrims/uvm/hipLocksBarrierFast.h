@@ -1,5 +1,5 @@
-#ifndef __HIPLOCKSBARRIERFAST_CU__
-#define __HIPLOCKSBARRIERFAST_CU__
+#ifndef __HIPLOCKSBARRIERFAST_H__
+#define __HIPLOCKSBARRIERFAST_H__
 
 #include "hip/hip_runtime.h"
 #include "hipLocks.h"
