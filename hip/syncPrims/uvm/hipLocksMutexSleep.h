@@ -45,7 +45,12 @@ __device__ unsigned int hipMutexSleepLock(const hipMutex_t mutex,
       Don't need store release semantics -- the atomicAdd below determines
       the happens-before ordering here.
     */
-    myRingBufferLoc = atomicInc(ringBufferTailPtr, maxRingBufferSize);
+    /*
+      HIP currently doesn't generate the correct code for atomicInc's,
+      so replace with an atomicAdd of 1 and assume no wraparound
+    */
+    //myRingBufferLoc = atomicInc(ringBufferTailPtr, maxRingBufferSize);
+    myRingBufferLoc = atomicAdd(ringBufferTailPtr, 1);
 
     haveLock = false; // initially we don't have the lock
   }
@@ -132,7 +137,12 @@ __device__ unsigned int hipMutexSleepLockLocal(const hipMutex_t mutex,
   // this is a fire-and-forget atomic.
   if (isMasterThread)
   {
-    myRingBufferLoc = atomicInc(ringBufferTailPtr, maxRingBufferSize);
+    /*
+      HIP currently doesn't generate the correct code for atomicInc's here,
+      so replace with an atomicAdd of 1 and assume no wraparound
+    */
+    //myRingBufferLoc = atomicInc(ringBufferTailPtr, maxRingBufferSize);
+    myRingBufferLoc = atomicAdd(ringBufferTailPtr, 1);
 
     haveLock = false; // initially we don't have the lock
   }
