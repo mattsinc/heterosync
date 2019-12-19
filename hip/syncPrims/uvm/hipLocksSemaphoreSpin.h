@@ -7,18 +7,18 @@
 inline __host__ hipError_t hipSemaphoreCreateSpin(hipSemaphore_t * const handle,
                                                   const int semaphoreNumber,
                                                   const unsigned int count,
-                                                  const int NUM_SM)
+                                                  const int NUM_CU)
 {
   // Here we set the initial value to be count+1, this allows us to do an
   // atomicExch(sem, 0) and basically use the semaphore value as both a
   // lock and a semaphore.
   unsigned int initialValue = (count + 1), zero = 0;
   *handle = semaphoreNumber;
-  for (int id = 0; id < NUM_SM; ++id) { // need to set these values for all SMs
-    hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) + (id * 4))]), &initialValue, sizeof(initialValue), hipMemcpyHostToDevice);
-    hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) + (id * 4)) + 1]), &zero, sizeof(zero), hipMemcpyHostToDevice);
-    hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) + (id * 4)) + 2]), &zero, sizeof(zero), hipMemcpyHostToDevice);
-    hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_SM) + (id * 4)) + 3]), &initialValue, sizeof(initialValue), hipMemcpyHostToDevice);
+  for (int id = 0; id < NUM_CU; ++id) { // need to set these values for all CUs
+    hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_CU) + (id * 4))]), &initialValue, sizeof(initialValue), hipMemcpyHostToDevice);
+    hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_CU) + (id * 4)) + 1]), &zero, sizeof(zero), hipMemcpyHostToDevice);
+    hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_CU) + (id * 4)) + 2]), &zero, sizeof(zero), hipMemcpyHostToDevice);
+    hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 4 * NUM_CU) + (id * 4)) + 3]), &initialValue, sizeof(initialValue), hipMemcpyHostToDevice);
   }
   return hipSuccess;
 }
@@ -27,16 +27,16 @@ inline __device__ bool hipSemaphoreSpinTryWait(const hipSemaphore_t sem,
                                                const bool isWriter,
                                                const unsigned int maxSemCount,
                                                unsigned int * semaphoreBuffers,
-                                               const int NUM_SM)
+                                               const int NUM_CU)
 {
   const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
                                hipThreadIdx_z == 0);
   /*
-    Each sem has NUM_SM * 4 locations in the buffer.  Of these locations, each
-    SM uses 4 of them (current count, head, tail, max count).  For the global
-    semaphore all SMs use semaphoreBuffers[sem * 4 * NUM_SM].
+    Each sem has NUM_CU * 4 locations in the buffer.  Of these locations, each
+    CU uses 4 of them (current count, head, tail, max count).  For the global
+    semaphore all CUs use semaphoreBuffers[sem * 4 * NUM_CU].
   */
-  unsigned int * const currCount = semaphoreBuffers + (sem * 4 * NUM_SM);
+  unsigned int * const currCount = semaphoreBuffers + (sem * 4 * NUM_CU);
   unsigned int * const lock = currCount + 1;
   /*
     Reuse the tail for the "writers are waiting" flag since tail is unused.
@@ -66,7 +66,7 @@ inline __device__ bool hipSemaphoreSpinTryWait(const hipSemaphore_t sem,
   {
     acq2 = false;
     /*
-      NOTE: currCount is only accessed by 1 TB at a time and has a lock around
+      NOTE: currCount is only accessed by 1 WG at a time and has a lock around
       it, so we can safely access it as a regular data access instead of with
       atomics.
     */
@@ -106,7 +106,7 @@ inline __device__ bool hipSemaphoreSpinTryWait(const hipSemaphore_t sem,
 
   if (isMasterThread) {
     /*
-      NOTE: currCount is only accessed by 1 TB at a time and has a lock around
+      NOTE: currCount is only accessed by 1 WG at a time and has a lock around
       it, so we can safely access it as a regular data access instead of with
       atomics.
     */
@@ -141,9 +141,9 @@ inline __device__ void hipSemaphoreSpinWait(const hipSemaphore_t sem,
                                             const bool isWriter,
                                             const unsigned int maxSemCount,
                                             unsigned int * semaphoreBuffers,
-                                            const int NUM_SM)
+                                            const int NUM_CU)
 {
-  while (!hipSemaphoreSpinTryWait(sem, isWriter, maxSemCount, semaphoreBuffers, NUM_SM))
+  while (!hipSemaphoreSpinTryWait(sem, isWriter, maxSemCount, semaphoreBuffers, NUM_CU))
   {
     __syncthreads();
   }
@@ -153,16 +153,16 @@ inline __device__ void hipSemaphoreSpinPost(const hipSemaphore_t sem,
                                             const bool isWriter,
                                             const unsigned int maxSemCount,
                                             unsigned int * semaphoreBuffers,
-                                            const int NUM_SM)
+                                            const int NUM_CU)
 {
   const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
                                hipThreadIdx_z == 0);
   /*
-    Each sem has NUM_SM * 4 locations in the buffer.  Of these locations, each
-    SM uses 4 of them (current count, head, tail, max count).  For the global
-    semaphore use semaphoreBuffers[sem * 4 * NUM_SM].
+    Each sem has NUM_CU * 4 locations in the buffer.  Of these locations, each
+    CU uses 4 of them (current count, head, tail, max count).  For the global
+    semaphore use semaphoreBuffers[sem * 4 * NUM_CU].
   */
-  unsigned int * const currCount = semaphoreBuffers + (sem * 4 * NUM_SM);
+  unsigned int * const currCount = semaphoreBuffers + (sem * 4 * NUM_CU);
   unsigned int * const lock = currCount + 1;
   __shared__ bool acquired;
 
@@ -192,7 +192,7 @@ inline __device__ void hipSemaphoreSpinPost(const hipSemaphore_t sem,
 
   if (isMasterThread) {
     /*
-      NOTE: currCount is only accessed by 1 TB at a time and has a lock around
+      NOTE: currCount is only accessed by 1 WG at a time and has a lock around
       it, so we can safely access it as a regular data access instead of with
       atomics.
     */
@@ -213,21 +213,21 @@ inline __device__ void hipSemaphoreSpinPost(const hipSemaphore_t sem,
   __syncthreads();
 }
 
-// same wait algorithm but with local scope and per-SM synchronization
+// same wait algorithm but with local scope and per-CU synchronization
 inline __device__ bool hipSemaphoreSpinTryWaitLocal(const hipSemaphore_t sem,
-                                                    const unsigned int smID,
+                                                    const unsigned int cuID,
                                                     const bool isWriter,
                                                     const unsigned int maxSemCount,
                                                     unsigned int * semaphoreBuffers,
-                                                    const int NUM_SM)
+                                                    const int NUM_CU)
 {
   const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
                                hipThreadIdx_z == 0);
-  // Each sem has NUM_SM * 4 locations in the buffer.  Of these locations, each
-  // SM gets 4 of them (current count, head, tail, max count).  So SM 0 starts
-  // at semaphoreBuffers[sem * 4 * NUM_SM].
+  // Each sem has NUM_CU * 4 locations in the buffer.  Of these locations, each
+  // CU gets 4 of them (current count, head, tail, max count).  So CU 0 starts
+  // at semaphoreBuffers[sem * 4 * NUM_CU].
   unsigned int * const currCount = semaphoreBuffers +
-                                       ((sem * 4 * NUM_SM) + (smID * 4));
+                                       ((sem * 4 * NUM_CU) + (cuID * 4));
   unsigned int * const lock = currCount + 1;
   /*
     Reuse the tail for the "writers are waiting" flag since tail is unused.
@@ -257,7 +257,7 @@ inline __device__ bool hipSemaphoreSpinTryWaitLocal(const hipSemaphore_t sem,
   {
     acq2 = false;
     /*
-      NOTE: currCount is only accessed by 1 TB at a time and has a lock around
+      NOTE: currCount is only accessed by 1 WG at a time and has a lock around
       it, so we can safely access it as a regular data access instead of with
       atomics.
     */
@@ -297,7 +297,7 @@ inline __device__ bool hipSemaphoreSpinTryWaitLocal(const hipSemaphore_t sem,
 
   if (isMasterThread) {
     /*
-      NOTE: currCount is only accessed by 1 TB at a time and has a lock around
+      NOTE: currCount is only accessed by 1 WG at a time and has a lock around
       it, so we can safely access it as a regular data access instead of with
       atomics.
      */
@@ -331,30 +331,30 @@ inline __device__ bool hipSemaphoreSpinTryWaitLocal(const hipSemaphore_t sem,
 }
 
 inline __device__ void hipSemaphoreSpinWaitLocal(const hipSemaphore_t sem,
-                                                 const unsigned int smID,
+                                                 const unsigned int cuID,
                                                  const bool isWriter,
                                                  const unsigned int maxSemCount,
                                                  unsigned int * semaphoreBuffers,
-                                                 const int NUM_SM)
+                                                 const int NUM_CU)
 {
-  while (!hipSemaphoreSpinTryWaitLocal(sem, smID, isWriter, maxSemCount, semaphoreBuffers, NUM_SM))
+  while (!hipSemaphoreSpinTryWaitLocal(sem, cuID, isWriter, maxSemCount, semaphoreBuffers, NUM_CU))
   {
     __syncthreads();
   }
 }
 
 inline __device__ void hipSemaphoreSpinPostLocal(const hipSemaphore_t sem,
-                                                 const unsigned int smID,
+                                                 const unsigned int cuID,
                                                  const bool isWriter,
                                                  const unsigned int maxSemCount,
                                                  unsigned int * semaphoreBuffers,
-                                                 const int NUM_SM)
+                                                 const int NUM_CU)
 {
   bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 && hipThreadIdx_z == 0);
-  // Each sem has NUM_SM * 4 locations in the buffer.  Of these locations, each
-  // SM gets 4 of them.  So SM 0 starts at semaphoreBuffers[sem * 4 * NUM_SM].
+  // Each sem has NUM_CU * 4 locations in the buffer.  Of these locations, each
+  // CU gets 4 of them.  So CU 0 starts at semaphoreBuffers[sem * 4 * NUM_CU].
   unsigned int * const currCount = semaphoreBuffers +
-                                       ((sem * 4 * NUM_SM) + (smID * 4));
+                                       ((sem * 4 * NUM_CU) + (cuID * 4));
   unsigned int * const lock = currCount + 1;
   __shared__ bool acquired;
 
@@ -384,7 +384,7 @@ inline __device__ void hipSemaphoreSpinPostLocal(const hipSemaphore_t sem,
 
   if (isMasterThread) {
     /*
-      NOTE: currCount is only accessed by 1 TB at a time and has a lock around
+      NOTE: currCount is only accessed by 1 WG at a time and has a lock around
       it, so we can safely access it as a regular data access instead of with
       atomics.
     */

@@ -1,5 +1,5 @@
-#ifndef __HIPLOCKCUUTEXFA_H__
-#define __HIPLOCKCUUTEXFA_H__
+#ifndef __HIPLOCKSMUTEXFA_H__
+#define __HIPLOCKSMUTEXFA_H__
 
 #include "hip/hip_runtime.h"
 #include "hipLocks.h"

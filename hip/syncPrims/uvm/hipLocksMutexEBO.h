@@ -13,7 +13,7 @@ inline __host__ hipError_t hipMutexCreateEBO(hipMutex_t * const handle,
 
 inline __device__ void hipMutexEBOLock(const hipMutex_t mutex,
                                        unsigned int * mutexBufferHeads,
-                                       const int NUM_SM)
+                                       const int NUM_CU)
 {
   // local variables
   __shared__ int done, backoff;
@@ -25,7 +25,7 @@ inline __device__ void hipMutexEBOLock(const hipMutex_t mutex,
   {
     backoff = 1;
     done = 0;
-    mutexHeadPtr = (mutexBufferHeads + (mutex * NUM_SM));
+    mutexHeadPtr = (mutexBufferHeads + (mutex * NUM_CU));
   }
   __syncthreads();
   while (!done)
@@ -54,22 +54,22 @@ inline __device__ void hipMutexEBOLock(const hipMutex_t mutex,
 
 inline __device__ void hipMutexEBOUnlock(const hipMutex_t mutex,
                                          unsigned int * mutexBufferHeads,
-                                         const int NUM_SM)
+                                         const int NUM_CU)
 {
   __syncthreads();
   if (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 && hipThreadIdx_z == 0) {
     // atomicExch acts as a store release, need TF to enforce ordering
     __threadfence();
-    atomicExch(mutexBufferHeads + (mutex * NUM_SM), 0); // release the lock
+    atomicExch(mutexBufferHeads + (mutex * NUM_CU), 0); // release the lock
   }
   __syncthreads();
 }
 
 // same locking algorithm but with local scope
 inline __device__ void hipMutexEBOLockLocal(const hipMutex_t mutex,
-                                            const unsigned int smID,
+                                            const unsigned int cuID,
                                             unsigned int * mutexBufferHeads,
-                                            const int NUM_SM)
+                                            const int NUM_CU)
 {
   // local variables
   __shared__ int done, backoff;
@@ -81,7 +81,7 @@ inline __device__ void hipMutexEBOLockLocal(const hipMutex_t mutex,
   {
     backoff = 1;
     done = 0;
-    mutexHeadPtr = (mutexBufferHeads + ((mutex * NUM_SM) + smID));
+    mutexHeadPtr = (mutexBufferHeads + ((mutex * NUM_CU) + cuID));
   }
   __syncthreads();
   while (!done)
@@ -110,15 +110,15 @@ inline __device__ void hipMutexEBOLockLocal(const hipMutex_t mutex,
 
 // same unlock algorithm but with local scope
 inline __device__ void hipMutexEBOUnlockLocal(const hipMutex_t mutex,
-                                              const unsigned int smID,
+                                              const unsigned int cuID,
                                               unsigned int * mutexBufferHeads,
-                                              const int NUM_SM)
+                                              const int NUM_CU)
 {
   __syncthreads();
   if (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 && hipThreadIdx_z == 0) {
     // atomicExch acts as a store release, need TF to enforce ordering locally
     __threadfence_block();
-    atomicExch(mutexBufferHeads + ((mutex * NUM_SM) + smID), 0); // release the lock
+    atomicExch(mutexBufferHeads + ((mutex * NUM_CU) + cuID), 0); // release the lock
   }
   __syncthreads();
 }

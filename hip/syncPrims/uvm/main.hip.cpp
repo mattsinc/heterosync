@@ -17,7 +17,6 @@
 #include "hipLocksImpl.h"
 #include "hipLocksMutex.h"
 #include "hipLocksSemaphore.h"
-
 // program globals
 const int NUM_REPEATS = 10;
 int NUM_LDST = 0;

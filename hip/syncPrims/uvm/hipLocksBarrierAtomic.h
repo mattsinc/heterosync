@@ -7,7 +7,7 @@
 inline __device__ void hipBarrierAtomicSub(unsigned int * globalBarr,
                                             int * done,
                                             // numBarr represents the number of
-                                            // TBs going to the barrier
+                                            // WGs going to the barrier
                                             const unsigned int numBarr,
                                             int backoff,
                                             const bool isMasterThread)
@@ -19,12 +19,12 @@ inline __device__ void hipBarrierAtomicSub(unsigned int * globalBarr,
 
     // atomicInc acts as a store release, need TF to enforce ordering
     __threadfence();
-    // atomicInc effectively adds 1 to atomic for each TB that's part of the
+    // atomicInc effectively adds 1 to atomic for each WG that's part of the
     // global barrier.
-	/*
-	  HIP currently doesn't generate the correct code for atomicInc's here,
-	  so replace with an atomicAdd of 1 and assume no wraparound
-	*/
+    /*
+      HIP currently doesn't generate the correct code for atomicInc's here,
+      so replace with an atomicAdd of 1 and assume no wraparound
+    */
     //atomicInc(globalBarr, 0x7FFFFFFF);
     atomicAdd(globalBarr, 1);
   }
@@ -35,11 +35,11 @@ inline __device__ void hipBarrierAtomicSub(unsigned int * globalBarr,
     if (isMasterThread)
     {
       /*
-        For the tree barrier we expect only 1 TB from each SM to enter the
+        For the tree barrier we expect only 1 WG from each CU to enter the
         global barrier.  Since we are assuming an equal amount of work for all
-        SMs, we can use the # of TBs reaching the barrier for the compare value
+        CUs, we can use the # of WGs reaching the barrier for the compare value
         here.  Once the atomic's value == numBarr, then reset the value to 0 and
-        proceed because all of the TBs have reached the global barrier.
+        proceed because all of the WGs have reached the global barrier.
       */
       if (atomicCAS(globalBarr, numBarr, 0) == 0) {
         // atomicCAS acts as a load acquire, need TF to enforce ordering
@@ -64,7 +64,7 @@ inline __device__ void hipBarrierAtomicSub(unsigned int * globalBarr,
 
 inline __device__ void hipBarrierAtomic(unsigned int * barrierBuffers,
                                          // numBarr represents the number of
-                                         // TBs going to the barrier
+                                         // WGs going to the barrier
                                          const unsigned int numBarr,
                                          const bool isMasterThread)
 {
@@ -84,10 +84,10 @@ inline __device__ void hipBarrierAtomic(unsigned int * barrierBuffers,
   hipBarrierAtomicSub(atomic2, &done2, numBarr, backoff, isMasterThread);
 }
 
-// does local barrier amongst all of the TBs on an SM
-inline __device__ void hipBarrierAtomicSubLocal(unsigned int * perSMBarr,
+// does local barrier amongst all of the WGs on an CU
+inline __device__ void hipBarrierAtomicSubLocal(unsigned int * perCUBarr,
                                                  int * done,
-                                                 const unsigned int numTBs_thisSM,
+                                                 const unsigned int numWGs_thisCU,
                                                  const bool isMasterThread)
 {
   __syncthreads();
@@ -97,16 +97,16 @@ inline __device__ void hipBarrierAtomicSubLocal(unsigned int * perSMBarr,
     // atomicInc acts as a store release, need TF to enforce ordering locally
     __threadfence_block();
     /*
-      atomicInc effectively adds 1 to atomic for each TB that's part of the
+      atomicInc effectively adds 1 to atomic for each WG that's part of the
       barrier.  For the local barrier, this requires using the per-CU
       locations.
     */
-	/*
-	  HIP currently doesn't generate the correct code for atomicInc's here,
-	  so replace with an atomicAdd of 1 and assume no wraparound
-	*/
-    //atomicInc(perSMBarr, 0x7FFFFFFF);
-    atomicAdd(perSMBarr, 1);
+    /*
+      HIP currently doesn't generate the correct code for atomicInc's here,
+      so replace with an atomicAdd of 1 and assume no wraparound
+    */
+    //atomicInc(perCUBarr, 0x7FFFFFFF);
+    atomicAdd(perCUBarr, 1);
   }
   __syncthreads();
 
@@ -115,13 +115,13 @@ inline __device__ void hipBarrierAtomicSubLocal(unsigned int * perSMBarr,
     if (isMasterThread)
     {
       /*
-        Once all of the TBs on this SM have incremented the value at atomic,
-        then the value (for the local barrier) should be equal to the # of TBs
-        on this SM.  Once that is true, then we want to reset the atomic to 0
-        and proceed because all of the TBs on this SM have reached the local
+        Once all of the WGs on this CU have incremented the value at atomic,
+        then the value (for the local barrier) should be equal to the # of WGs
+        on this CU.  Once that is true, then we want to reset the atomic to 0
+        and proceed because all of the WGs on this CU have reached the local
         barrier.
       */
-      if (atomicCAS(perSMBarr, numTBs_thisSM, 0) == 0) {
+      if (atomicCAS(perCUBarr, numWGs_thisCU, 0) == 0) {
         // atomicCAS acts as a load acquire, need TF to enforce ordering
         // locally
         __threadfence_block();
@@ -132,50 +132,50 @@ inline __device__ void hipBarrierAtomicSubLocal(unsigned int * perSMBarr,
   }
 }
 
-// does local barrier amongst all of the TBs on an SM
-inline __device__ void hipBarrierAtomicLocal(unsigned int * perSMBarrierBuffers,
-                                              const unsigned int smID,
-                                              const unsigned int numTBs_thisSM,
+// does local barrier amongst all of the WGs on an CU
+inline __device__ void hipBarrierAtomicLocal(unsigned int * perCUBarrierBuffers,
+                                              const unsigned int cuID,
+                                              const unsigned int numWGs_thisCU,
                                               const bool isMasterThread,
                                               const int MAX_BLOCKS)
 {
-  // each SM has MAX_BLOCKS locations in barrierBuffers, so my SM's locations
-  // start at barrierBuffers[smID*MAX_BLOCKS]
-  unsigned int * atomic1 = perSMBarrierBuffers + (smID * MAX_BLOCKS);
+  // each CU has MAX_BLOCKS locations in barrierBuffers, so my CU's locations
+  // start at barrierBuffers[cuID*MAX_BLOCKS]
+  unsigned int * atomic1 = perCUBarrierBuffers + (cuID * MAX_BLOCKS);
   unsigned int * atomic2 = atomic1 + 1;
   __shared__ int done1, done2;
 
-  hipBarrierAtomicSubLocal(atomic1, &done1, numTBs_thisSM, isMasterThread);
+  hipBarrierAtomicSubLocal(atomic1, &done1, numWGs_thisCU, isMasterThread);
   // second barrier is necessary to approproximate a sense-reversing barrier
-  hipBarrierAtomicSubLocal(atomic2, &done2, numTBs_thisSM, isMasterThread);
+  hipBarrierAtomicSubLocal(atomic2, &done2, numWGs_thisCU, isMasterThread);
 }
 
 /*
   Helper function for joining the barrier with the atomic tree barrier.
 */
 __device__ void joinBarrier_helper(unsigned int * barrierBuffers,
-                                   unsigned int * perSMBarrierBuffers,
+                                   unsigned int * perCUBarrierBuffers,
                                    const unsigned int numBlocksAtBarr,
-                                   const int smID,
-                                   const int perSM_blockID,
-                                   const int numTBs_perSM,
+                                   const int cuID,
+                                   const int perCU_blockID,
+                                   const int numWGs_perCU,
                                    const bool isMasterThread,
                                    const int MAX_BLOCKS) {
-  if (numTBs_perSM > 1) {
-    hipBarrierAtomicLocal(perSMBarrierBuffers, smID, numTBs_perSM,
+  if (numWGs_perCU > 1) {
+    hipBarrierAtomicLocal(perCUBarrierBuffers, cuID, numWGs_perCU,
                            isMasterThread, MAX_BLOCKS);
 
-    // only 1 TB per SM needs to do the global barrier since we synchronized
-    // the TBs locally first
-    if (perSM_blockID == 0) {
+    // only 1 WG per CU needs to do the global barrier since we synchronized
+    // the WGs locally first
+    if (perCU_blockID == 0) {
       hipBarrierAtomic(barrierBuffers, numBlocksAtBarr, isMasterThread);
     }
 
-    // all TBs on this SM do a local barrier to ensure global barrier is
+    // all WGs on this CU do a local barrier to ensure global barrier is
     // reached
-    hipBarrierAtomicLocal(perSMBarrierBuffers, smID, numTBs_perSM,
+    hipBarrierAtomicLocal(perCUBarrierBuffers, cuID, numWGs_perCU,
                            isMasterThread, MAX_BLOCKS);
-  } else { // if only 1 TB on the SM, no need for the local barriers
+  } else { // if only 1 WG on the CU, no need for the local barriers
     hipBarrierAtomic(barrierBuffers, numBlocksAtBarr, isMasterThread);
   }
 }

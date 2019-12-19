@@ -66,7 +66,7 @@ static hipLockData_t * cpuLockData;
 
 hipError_t hipLocksInit(const int maxBlocksPerKernel, const int numMutexes,
                         const int numSemaphores, const bool pageAlign,
-                        const int NUM_SM);
+                        const int NUM_CU);
 hipError_t hipLocksDestroy();
 
 #endif

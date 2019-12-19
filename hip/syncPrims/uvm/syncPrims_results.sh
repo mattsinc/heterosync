@@ -6,8 +6,8 @@ EXECUTABLES="allSyncPrims-1kernel"
 SYNCPRIMS="atomicTreeBarrUniq atomicTreeBarrUniqLocalExch lfTreeBarrUniq lfTreeBarrUniqLocalExch spinMutex spinMutexEBO faMutex sleepMutex spinSem10 spinSemEBO10 spinMutexUniq spinMutexEBOUniq faMutexUniq sleepMutexUniq spinSemUniq10 spinSemEBOUniq10" # syncPrims to run
 #NUM_LDST="10 100 1000"
 NUM_LDST="10"
-# This GPU has 2 SMs, so want 1 TB/SM, 2 TB/SM, 4 TB/SM, 8 TB/SM (max allowed)
-NUM_TBS="2 4 8 16"
+# This GPU has 2 CUs, so want 1 WG/CU, 2 WG/CU, 4 WG/CU, 8 WG/CU (max allowed)
+NUM_WGS="2 4 8 16"
 
 # do the prescribed number of runs for each executable, print out all runtimes
 for executable in $EXECUTABLES;
@@ -22,17 +22,17 @@ do
         do
             echo -e "\t\tnumLdSt = $numLdSt"
 
-            for numTBs in $NUM_TBS
+            for numWGs in $NUM_WGS
             do
-                echo -e "\t\t\tnumTBs = $numTBs"
+                echo -e "\t\t\tnumWGs = $numWGs"
 
-                # ./allSyncPrims-1kernel <syncPrim> <numLdSt> <numTBs> <numCSIters>
-                echo -e "\t\t\t\t./$executable $syncPrim $numLdSt $numTBs $NUM_CS_ITERS"
+                # ./allSyncPrims-1kernel <syncPrim> <numLdSt> <numWGs> <numCSIters>
+                echo -e "\t\t\t\t./$executable $syncPrim $numLdSt $numWGs $NUM_CS_ITERS"
                 for (( j=0; j<$NUM_RUNS; j++ ))
                 do
                     #echo -e "\t\t\tRun $j"
                     duration[$j]=0
-                    duration[$j]=`./$executable $syncPrim $numLdSt $numTBs $NUM_CS_ITERS | grep "average" | cut -f3 -d: | cut -f1 -dm`
+                    duration[$j]=`./$executable $syncPrim $numLdSt $numWGs $NUM_CS_ITERS | grep "average" | cut -f3 -d: | cut -f1 -dm`
                     #echo -e "\t\t\t\tduration = ${duration[$j]}"
                 done
 
