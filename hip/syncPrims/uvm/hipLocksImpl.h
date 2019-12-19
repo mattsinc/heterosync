@@ -38,40 +38,33 @@ hipError_t hipLocksInit(const int maxBlocksPerKernel, const int numMutexes,
   hipDeviceSynchronize();
   hipEventRecord(start, 0);
 
-  hipMemset(cpuLockData->barrierBuffers, 0, sizeof(unsigned int) * cpuLockData->arrayStride * 2);
+  hipMemset(cpuLockData->barrierBuffers, 0,
+            sizeof(unsigned int) * cpuLockData->arrayStride * 2);
 
-  hipMemset(cpuLockData->mutexBufferHeads, 0, sizeof(unsigned int) * cpuLockData->mutexCount);
-  hipMemset(cpuLockData->mutexBufferTails, 0, sizeof(unsigned int) * cpuLockData->mutexCount);
+  hipMemset(cpuLockData->mutexBufferHeads, 0,
+            sizeof(unsigned int) * cpuLockData->mutexCount);
+  hipMemset(cpuLockData->mutexBufferTails, 0,
+            sizeof(unsigned int) * cpuLockData->mutexCount);
 
-  // initialize mutexBuffers to appropriate values
-  // initialize to -1 to ensure that sleep mutex doesn't accidentally read the
-  // wrong TB ID
-  //for (int j = 0; j < mutexCount; ++j) {
-  for (int i = 0; i < (cpuLockData->arrayStride * cpuLockData->mutexCount); ++i) {
-    // set the first location for each SM to 1 so that the ring buffer can be
-    // used by the first TB right away (otherwise livelock because no locations
-    // ever == 1)
-    if (i % cpuLockData->arrayStride == 0) {
-      hipMemset(&(cpuLockData->mutexBuffers[i]), 1, sizeof(int));
-    }
-    // for all other locations initialize to -1 so TBs for these locations
-    // don't think it's their turn right away
-    else {
-      // ** TODO: Could copy a whole bunch of these over at once to reduce number of memsets
-      hipMemset(&(cpuLockData->mutexBuffers[i]), -1, sizeof(int));
-    }
-  }
   /*
-  for (int i = 0; i < cpuLockData->mutexCount; ++i) {
-    // set the first location for each SM to 1 so that the ring buffer can be
-    // used by the first TB right away (otherwise livelock because no locations
-    // ever == 1)
-    hipMemset(&(cpuLockData->mutexBuffers[i]), 1, sizeof(int));
-    hipMemset(&(cpuLockData->mutexBuffers[i]), -1, (cpuLockData->arrayStride - 1) * sizeof(int));
-  }
-  */
+    initialize mutexBuffers to appropriate values
 
-  hipMemset(cpuLockData->semaphoreBuffers, 0, sizeof(unsigned int) * cpuLockData->semaphoreCount * 4);
+    set the first location for each SM to 1 so that the ring buffer can be
+    used by the first TB right away (otherwise livelock because no locations
+    ever == 1)
+
+    for all other locations initialize to -1 so TBs for these locations
+    don't think it's their turn right away
+  */
+  for (int i = 0; i < (cpuLockData->arrayStride * cpuLockData->mutexCount);
+       i += cpuLockData->arrayStride) {
+    hipMemset(&(cpuLockData->mutexBuffers[i]), 1, sizeof(int));
+    hipMemset(&(cpuLockData->mutexBuffers[i + 1]), -1,
+              (cpuLockData->arrayStride - 1) * sizeof(int));
+  }
+
+  hipMemset(cpuLockData->semaphoreBuffers, 0,
+            sizeof(unsigned int) * cpuLockData->semaphoreCount * 4);
 
   hipDeviceSynchronize();
   hipEventRecord(end, 0);
