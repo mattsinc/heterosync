@@ -16,7 +16,8 @@ hipError_t hipLocksInit(const int maxBlocksPerKernel, const int numMutexes,
 
   // initialize some of the lock data's values
   cpuLockData->maxBufferSize          = maxBlocksPerKernel;
-  cpuLockData->arrayStride            = (maxBlocksPerKernel + NUM_SM) / 16 * 16;
+  cpuLockData->arrayStride            = (maxBlocksPerKernel + NUM_SM) /
+                                        NUM_WORDS_PER_CACHELINE * NUM_WORDS_PER_CACHELINE;
   cpuLockData->mutexCount             = numMutexes;
   cpuLockData->semaphoreCount         = numSemaphores;
 
