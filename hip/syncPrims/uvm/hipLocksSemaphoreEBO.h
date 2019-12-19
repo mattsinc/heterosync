@@ -147,12 +147,10 @@ inline __device__ void hipSemaphoreEBOWait(const hipSemaphore_t sem,
   __shared__ int backoff;
   const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
                                hipThreadIdx_z == 0);
-  volatile __shared__ int dummySum;
 
   if (isMasterThread)
   {
     backoff = 1;
-    dummySum = 0;
   }
   __syncthreads();
 
@@ -163,7 +161,7 @@ inline __device__ void hipSemaphoreEBOWait(const hipSemaphore_t sem,
     {
       // if we failed to enter the semaphore, wait for a little while before
       // trying again
-      for (int j = 0; j < backoff; ++j) { dummySum += j; }
+      sleepFunc(backoff);
       /*
         for writers increse backoff a lot because failing means readers are in
         the CS currently -- most important for non-unique because all TBs on
@@ -368,12 +366,10 @@ inline __device__ void hipSemaphoreEBOWaitLocal(const hipSemaphore_t sem,
   __shared__ int backoff;
   const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
                                hipThreadIdx_z == 0);
-  volatile __shared__ int dummySum;
 
   if (isMasterThread)
   {
     backoff = 1;
-    dummySum = 0;
   }
   __syncthreads();
 
@@ -382,9 +378,11 @@ inline __device__ void hipSemaphoreEBOWaitLocal(const hipSemaphore_t sem,
     __syncthreads();
     if (isMasterThread)
     {
-      // if we failed to enter the semaphore, wait for a little while before
-      // trying again
-      for (int j = 0; j < backoff; ++j) { dummySum += j; }
+      /*
+        if we failed to enter the semaphore, wait for a little while before
+        trying again
+      */
+      sleepFunc(backoff);
       // (capped) exponential backoff
       backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
     }
