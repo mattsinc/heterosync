@@ -154,7 +154,8 @@ inline __device__ void spinOnMyOutFlag(unsigned int * inVars,
   {
     while (atomicAdd(&(outVars[blockID]), 0) != 1) { ; }
 
-    inVars[blockID] = outVars[blockID] = 0;
+    atomicExch(&(inVars[blockID]), 0);
+    atomicExch(&(outVars[blockID]), 0);
     // these stores act as a store release, need TF to enforce ordering
     __threadfence();
   }
@@ -173,7 +174,8 @@ inline __device__ void spinOnMyOutFlag_local(unsigned int * inVars,
   {
     while (atomicAdd(&(outVars[blockID]), 0) != 1) { ; }
 
-    inVars[blockID] = outVars[blockID] = 0;
+    atomicExch(&(inVars[blockID]), 0);
+    atomicExch(&(outVars[blockID]), 0);
     // these stores act as a store release, need TF to enforce ordering locally
     __threadfence_block();
   }
