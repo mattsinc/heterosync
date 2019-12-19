@@ -42,7 +42,7 @@ inline __device__ void spinOnInFlags(unsigned int * inVars,
     */
     for (int i = threadID; i < numBlocks; i += numThreads)
     {
-      if (reinterpret_cast<volatile int * >(inVars)[i] != 1) {
+      if (atomicAdd(&(inVars[i]), 0) != 1) {
         // acts as a load acquire, need TF to enforce ordering
         __threadfence();
 
@@ -83,7 +83,7 @@ inline __device__ void spinOnInFlags_local(unsigned int * inVars,
     */
     for (int i = threadID; i < numBlocks; i += numThreads)
     {
-      if (reinterpret_cast<volatile int * >(inVars)[i] != 1) {
+      if (atomicAdd(&(inVars[i]), 0) != 1) {
         // acts as a load acquire, need TF to enforce ordering locally
         __threadfence_block();
 
@@ -114,8 +114,8 @@ inline __device__ void setOutFlags(unsigned int * inVars,
                                    const int numBlocks) {
   for (int i = threadID; i < numBlocks; i += numThreads)
   {
-    reinterpret_cast<volatile int * >(inVars)[i] = 0;
-    reinterpret_cast<volatile int * >(outVars)[i] = 1;
+    atomicExch(&(inVars[i]), 0);
+    atomicExch(&(outVars[i]), 1);
   }
   __syncthreads();
   // outVars acts as a store release, need TF to enforce ordering
@@ -134,8 +134,8 @@ inline __device__ void setOutFlags_local(unsigned int * inVars,
                                          const int numBlocks) {
   for (int i = threadID; i < numBlocks; i += numThreads)
   {
-    reinterpret_cast<volatile int * >(inVars)[i] = 0;
-    reinterpret_cast<volatile int * >(outVars)[i] = 1;
+    atomicExch(&(inVars[i]), 0);
+    atomicExch(&(outVars[i]), 1);
   }
   __syncthreads();
   // outVars acts as a store release, need TF to enforce ordering locally
@@ -152,7 +152,7 @@ inline __device__ void spinOnMyOutFlag(unsigned int * inVars,
                                        const int threadID) {
   if (threadID == 0)
   {
-    while (reinterpret_cast<volatile int * >(outVars)[blockID] != 1) { ; }
+    while (atomicAdd(&(outVars[blockID]), 0) != 1) { ; }
 
     inVars[blockID] = outVars[blockID] = 0;
     // these stores act as a store release, need TF to enforce ordering
@@ -171,7 +171,7 @@ inline __device__ void spinOnMyOutFlag_local(unsigned int * inVars,
                                              const int threadID) {
   if (threadID == 0)
   {
-    while (reinterpret_cast<volatile int * >(outVars)[blockID] != 1) { ; }
+    while (atomicAdd(&(outVars[blockID]), 0) != 1) { ; }
 
     inVars[blockID] = outVars[blockID] = 0;
     // these stores act as a store release, need TF to enforce ordering locally
