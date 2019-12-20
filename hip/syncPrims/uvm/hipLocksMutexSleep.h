@@ -37,6 +37,7 @@ __device__ unsigned int hipMutexSleepLock(const hipMutex_t mutex,
 
   __shared__ unsigned int myRingBufferLoc;
   __shared__ bool haveLock;
+  __shared__ int backoff;
 
   // this is a fire-and-forget atomic.
   if (isMasterThread)
@@ -53,6 +54,7 @@ __device__ unsigned int hipMutexSleepLock(const hipMutex_t mutex,
     myRingBufferLoc = atomicAdd(ringBufferTailPtr, 1);
 
     haveLock = false; // initially we don't have the lock
+    backoff = 1;
   }
   __syncthreads();
 
@@ -72,6 +74,14 @@ __device__ unsigned int hipMutexSleepLock(const hipMutex_t mutex,
 
         // When our location in the ring buffer == 1, we have the lock
         haveLock = true;
+      }
+      else
+      {
+        // if we failed in acquiring the lock, wait for a little while before
+        // trying again
+        sleepFunc(backoff);
+        // (capped) exponential backoff
+        backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
       }
     }
     __syncthreads();
