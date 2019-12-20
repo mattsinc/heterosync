@@ -43,33 +43,26 @@ cudaError_t cudaLocksInit(const int maxBlocksPerKernel, const int numMutexes,
   cudaMemset(cpuLockData->mutexBufferHeads, 0, sizeof(unsigned int) * cpuLockData->mutexCount);
   cudaMemset(cpuLockData->mutexBufferTails, 0, sizeof(unsigned int) * cpuLockData->mutexCount);
 
-  // initialize mutexBuffers to appropriate values
-  // initialize to -1 to ensure that sleep mutex doesn't accidentally read the
-  // wrong TB ID
-  //for (int j = 0; j < mutexCount; ++j) {
-  for (int i = 0; i < (cpuLockData->arrayStride * cpuLockData->mutexCount); ++i) {
-    // set the first location for each SM to 1 so that the ring buffer can be
-    // used by the first TB right away (otherwise livelock because no locations
-    // ever == 1)
-    if (i % cpuLockData->arrayStride == 0) {
-      cudaMemset(&(cpuLockData->mutexBuffers[i]), 1, sizeof(int));
-    }
-    // for all other locations initialize to -1 so TBs for these locations
-    // don't think it's their turn right away
-    else {
-      // ** TODO: Could copy a whole bunch of these over at once to reduce number of memsets
-      cudaMemset(&(cpuLockData->mutexBuffers[i]), -1, sizeof(int));
-    }
-  }
   /*
-  for (int i = 0; i < cpuLockData->mutexCount; ++i) {
-    // set the first location for each SM to 1 so that the ring buffer can be
-    // used by the first TB right away (otherwise livelock because no locations
-    // ever == 1)
-    cudaMemset(&(cpuLockData->mutexBuffers[i]), 1, sizeof(int));
-    cudaMemset(&(cpuLockData->mutexBuffers[i]), -1, (cpuLockData->arrayStride - 1) * sizeof(int));
-  }
+    initialize mutexBuffers to appropriate values
+
+    set the first location for each SM to 1 so that the ring buffer can be
+    used by the first TB right away (otherwise livelock because no locations
+    ever == 1)
+
+    for all other locations initialize to -1 so TBs for these locations
+    don't think it's their turn right away
+
+    since cudaMemset sets everything in bytes, initialize all to 0 first
   */
+  cudaMemset(&(cpuLockData->mutexBuffers[0]), 0,
+            cpuLockData->arrayStride * cpuLockData->mutexCount * sizeof(int));
+  for (int i = 0; i < (cpuLockData->arrayStride * cpuLockData->mutexCount);
+       i += cpuLockData->arrayStride) {
+    cudaMemset(&(cpuLockData->mutexBuffers[i]), 0x0001, 1);
+    cudaMemset(&(cpuLockData->mutexBuffers[i + 1]), -1,
+               (cpuLockData->arrayStride - 1) * sizeof(int));
+  }
 
   cudaMemset(cpuLockData->semaphoreBuffers, 0, sizeof(unsigned int) * cpuLockData->semaphoreCount * 4);
 
