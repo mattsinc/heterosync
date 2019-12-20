@@ -8,8 +8,8 @@ endif
 
 CC := nvcc
 INCLUDE := $(CUDA_DIR)/include
-OPTS := -O3 -arch sm_21
-OPTS_DEBUG := -g -O0 -arch sm_21
+OPTS := -O3 -gencode arch=compute_60,code=sm_60
+OPTS_DEBUG := -g -O0 -gencode arch=compute_60,code=sm_60
 
 SRC = main.cu
 
