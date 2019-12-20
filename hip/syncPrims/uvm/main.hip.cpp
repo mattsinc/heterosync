@@ -990,7 +990,7 @@ void invokeSleepingMutex(hipMutex_t mutex, float * storage_d, int numIters)
 
   for (int repeat = 0; repeat < NUM_REPEATS; ++repeat)
   {
-	hipLaunchKernelGGL(HIP_KERNEL_NAME(kernelSleepingMutex), dim3(WGs), dim3(NUM_WIS_PER_WG), 0, 0, 
+    hipLaunchKernelGGL(HIP_KERNEL_NAME(kernelSleepingMutex), dim3(WGs), dim3(NUM_WIS_PER_WG), 0, 0, 
                        mutex, storage_d, cpuLockData, numIters, NUM_LDST, NUM_CU);
 
     // Blocks until the device has completed all preceding requested
@@ -1263,7 +1263,7 @@ int main(int argc, char ** argv)
 
   // multiply number of mutexes, semaphores by NUM_CU to
   // allow per-core locks
-  hipLocksInit(MAX_WGS, 8 * NUM_CU, 24 * NUM_CU, pageAlign, NUM_CU);
+  hipLocksInit(MAX_WGS, 8 * NUM_CU, 24 * NUM_CU, pageAlign, NUM_CU, NUM_REPEATS, NUM_ITERS);
 
   hipErr = hipGetLastError();
   checkError(hipErr, "After hipLocksInit");

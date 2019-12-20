@@ -2,7 +2,8 @@
 
 hipError_t hipLocksInit(const int maxWGsPerKernel, const int numMutexes,
                         const int numSemaphores, const bool pageAlign,
-                        const int NUM_CU)
+                        const int NUM_CU, const int NUM_REPEATS,
+                        const int NUM_ITERS)
 {
   hipError_t hipErr = hipGetLastError();
   checkError(hipErr, "Start hipLocksInit");
@@ -14,8 +15,15 @@ hipError_t hipLocksInit(const int maxWGsPerKernel, const int numMutexes,
   if (numSemaphores <= 0)         return hipErrorInitializationError;
 
   // initialize some of the lock data's values
-  cpuLockData->maxBufferSize          = maxWGsPerKernel;
-  cpuLockData->arrayStride            = (maxWGsPerKernel + NUM_CU) /
+  /*
+    Since HIP doesn't generate the correct code for atomicInc's, this
+    means wraparound is not handled properly.  However, since in the current
+    version each subsequent kernel launch starts in the ring buffer where
+    the last kernel left off, this eventually leads to wraparound.  Increase
+    buffer size to prevent wraparound and hide this.
+  */
+  cpuLockData->maxBufferSize          = maxWGsPerKernel * NUM_REPEATS * NUM_ITERS;
+  cpuLockData->arrayStride            = (cpuLockData->maxBufferSize + NUM_CU) /
                                           NUM_WORDS_PER_CACHELINE * NUM_WORDS_PER_CACHELINE;
   cpuLockData->mutexCount             = numMutexes;
   cpuLockData->semaphoreCount         = numSemaphores;
