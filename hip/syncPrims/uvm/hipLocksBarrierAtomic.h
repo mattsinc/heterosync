@@ -153,14 +153,14 @@ inline __device__ void hipBarrierAtomicLocal(unsigned int * perCUBarrierBuffers,
 /*
   Helper function for joining the barrier with the atomic tree barrier.
 */
-__device__ void joinBarrier_helper(unsigned int * barrierBuffers,
-                                   unsigned int * perCUBarrierBuffers,
-                                   const unsigned int numBlocksAtBarr,
-                                   const int cuID,
-                                   const int perCU_blockID,
-                                   const int numWGs_perCU,
-                                   const bool isMasterThread,
-                                   const int MAX_BLOCKS) {
+__attribute__((always_inline)) __device__ void joinBarrier_helper(unsigned int * barrierBuffers,
+                                                                  unsigned int * perCUBarrierBuffers,
+                                                                  const unsigned int numBlocksAtBarr,
+                                                                  const int cuID,
+                                                                  const int perCU_blockID,
+                                                                  const int numWGs_perCU,
+                                                                  const bool isMasterThread,
+                                                                  const int MAX_BLOCKS) {
   if (numWGs_perCU > 1) {
     hipBarrierAtomicLocal(perCUBarrierBuffers, cuID, numWGs_perCU,
                            isMasterThread, MAX_BLOCKS);
