@@ -25,6 +25,7 @@ inline __device__ void sleepFunc(int backoff) {
 #endif
 
   // handle any additional backoff
+#ifdef GFX9
   if (backoffCopy > 64) {
     __builtin_amdgcn_s_sleep(64);
     backoffCopy -= 64;
@@ -37,6 +38,7 @@ inline __device__ void sleepFunc(int backoff) {
     __builtin_amdgcn_s_sleep(16);
     backoffCopy -= 16;
   }
+#endif
   if (backoffCopy > 8) {
     __builtin_amdgcn_s_sleep(8);
     backoffCopy -= 8;
