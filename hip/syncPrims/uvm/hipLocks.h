@@ -10,10 +10,20 @@ extern "C" void __builtin_amdgcn_s_sleep(int);
  */
 inline __device__ void sleepFunc(int backoff) {
   int backoffCopy = backoff;
-  for (int i = 0; i < backoff; i += 128) {
-    __builtin_amdgcn_s_sleep(128);
-    backoffCopy -= 128;
+#ifdef GFX9
+  // max for gfx9 is 127
+  for (int i = 0; i < backoff; i += 127) {
+    __builtin_amdgcn_s_sleep(127);
+    backoffCopy -= 127;
   }
+#else
+  // max for gfx8 is 15
+  for (int i = 0; i < backoff; i += 15) {
+    __builtin_amdgcn_s_sleep(15);
+    backoffCopy -= 15;
+  }
+#endif
+
   // handle any additional backoff
   if (backoffCopy > 64) {
     __builtin_amdgcn_s_sleep(64);
