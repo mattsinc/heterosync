@@ -1,4 +1,4 @@
-CUDA_DIR = /usr/local/cuda
+CUDA_DIR ?= /usr/local/cuda
 CUDA_LIB_DIR := $(CUDA_DIR)/lib
 ifeq ($(shell uname -m), x86_64)
      ifeq ($(shell if test -d $(CUDA_DIR)/lib64; then echo T; else echo F; fi), T)
