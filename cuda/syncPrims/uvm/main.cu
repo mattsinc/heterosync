@@ -729,8 +729,8 @@ __global__ void kernelEBOSemaphore(cudaSemaphore_t sem, float * storage,
       thus the readers will read before the writer has had a chance to write
       the data.
     */
-   cudaSemaphoreEBOWait(sem, isWriter, maxSemCount,
-                        gpuLockData->semaphoreBuffers, NUM_SM);
+    cudaSemaphoreEBOWait(sem, isWriter, maxSemCount,
+                         gpuLockData->semaphoreBuffers, NUM_SM);
 
     // writer TB writes all the data that the TBs on this SM access
     if (isWriter) {
