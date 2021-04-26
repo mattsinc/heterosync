@@ -142,7 +142,7 @@ inline __device__ void cudaSemaphoreEBOWait(const cudaSemaphore_t sem,
                                             unsigned int * semaphoreBuffers,
                                             const int NUM_SM)
 {
-  __shared__ int backoff;
+  __shared__ unsigned int backoff;
   const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
                                threadIdx.z == 0);
   volatile __shared__ int dummySum;
@@ -367,7 +367,7 @@ inline __device__ void cudaSemaphoreEBOWaitLocal(const cudaSemaphore_t sem,
                                                  unsigned int * semaphoreBuffers,
                                                  const int NUM_SM)
 {
-  __shared__ int backoff;
+  __shared__ unsigned int backoff;
   const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
                                threadIdx.z == 0);
   volatile __shared__ int dummySum;

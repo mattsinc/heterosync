@@ -15,7 +15,8 @@ inline __device__ void cudaMutexEBOLock(const cudaMutex_t mutex,
                                         const int NUM_SM)
 {
   // local variables
-  __shared__ int done, backoff;
+  __shared__ int done;
+  __shared__ unsigned int backoff;
   const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
                                threadIdx.z == 0);
   unsigned int * mutexHeadPtr = NULL;
@@ -75,7 +76,8 @@ inline __device__ void cudaMutexEBOLockLocal(const cudaMutex_t mutex,
                                              const int NUM_SM)
 {
   // local variables
-  __shared__ int done, backoff;
+  __shared__ int done;
+  __shared__ unsigned int backoff;
   const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
                                threadIdx.z == 0);
   unsigned int * mutexHeadPtr = NULL;

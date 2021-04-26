@@ -8,9 +8,13 @@ inline __device__ void cudaBarrierAtomicSub(unsigned int * globalBarr,
                                             // numBarr represents the number of
                                             // TBs going to the barrier
                                             const unsigned int numBarr,
-                                            int backoff,
                                             const bool isMasterThread)
 {
+  __shared__ unsigned int backoff;
+
+  if (isMasterThread) {
+    backoff = 1;
+  }
   __syncthreads();
   if (isMasterThread)
   {
@@ -69,17 +73,11 @@ inline __device__ void cudaBarrierAtomic(unsigned int * barrierBuffers,
   unsigned int * atomic1 = barrierBuffers;
   unsigned int * atomic2 = atomic1 + 1;
   __shared__ int done1, done2;
-  __shared__ int backoff;
 
-  if (isMasterThread) {
-    backoff = 1;
-  }
-  __syncthreads();
-
-  cudaBarrierAtomicSub(atomic1, &done1, numBarr, backoff, isMasterThread);
+  cudaBarrierAtomicSub(atomic1, &done1, numBarr, isMasterThread);
   // second barrier is necessary to provide a facesimile for a sense-reversing
   // barrier
-  cudaBarrierAtomicSub(atomic2, &done2, numBarr, backoff, isMasterThread);
+  cudaBarrierAtomicSub(atomic2, &done2, numBarr, isMasterThread);
 }
 
 // does local barrier amongst all of the TBs on an SM
