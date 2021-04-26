@@ -849,8 +849,8 @@ void invokeAtomicTreeBarrier(float * storage_d, unsigned int * perSMBarriers_d,
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelAtomicTreeBarrierUniq)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelAtomicTreeBarrierUniq)");
   }
 }
 
@@ -869,9 +869,9 @@ void invokeAtomicTreeBarrierLocalExch(float * storage_d,
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
+    cudaError_t cudaErr = cudaDeviceSynchronize();
     checkError(cudaErr,
-               "cudaThreadSynchronize (kernelAtomicTreeBarrierUniqLockExch)");
+               "cudaDeviceSynchronize (kernelAtomicTreeBarrierUniqLockExch)");
   }
 }
 
@@ -889,8 +889,8 @@ void invokeFBSTreeBarrier(float * storage_d, unsigned int * perSMBarriers_d,
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelFBSTreeBarrierUniq)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelFBSTreeBarrierUniq)");
   }
 }
 
@@ -909,8 +909,8 @@ void invokeFBSTreeBarrierLocalExch(float * storage_d,
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelFBSTreeBarrierUniqLocalExch)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelFBSTreeBarrierUniqLocalExch)");
   }
 }
 
@@ -926,8 +926,8 @@ void invokeSpinLockMutex(cudaMutex_t mutex, float * storage_d, int numIters)
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelSpinLockMutex)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelSpinLockMutex)");
   }
 }
 
@@ -944,8 +944,8 @@ void invokeSpinLockMutex_uniq(cudaMutex_t mutex, float * storage_d,
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelSpinLockMutexUniq)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelSpinLockMutexUniq)");
   }
 }
 
@@ -961,8 +961,8 @@ void invokeEBOMutex(cudaMutex_t mutex, float * storage_d, int numIters)
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelEBOMutex)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelEBOMutex)");
   }
 }
 
@@ -978,8 +978,8 @@ void invokeEBOMutex_uniq(cudaMutex_t mutex, float * storage_d, int numIters)
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelEBOMutexUniq)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelEBOMutexUniq)");
   }
 }
 
@@ -995,8 +995,8 @@ void invokeSleepingMutex(cudaMutex_t mutex, float * storage_d, int numIters)
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelSleepingMutex)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelSleepingMutex)");
   }
 }
 
@@ -1013,8 +1013,8 @@ void invokeSleepingMutex_uniq(cudaMutex_t mutex, float * storage_d,
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelSleepingMutexUniq)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelSleepingMutexUniq)");
   }
 }
 
@@ -1030,8 +1030,8 @@ void invokeFetchAndAddMutex(cudaMutex_t mutex, float * storage_d, int numIters)
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelFetchAndAddMutex)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelFetchAndAddMutex)");
   }
 }
 
@@ -1047,8 +1047,8 @@ void invokeFetchAndAddMutex_uniq(cudaMutex_t mutex, float * storage_d, int numIt
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelFetchAndAddMutexUniq)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelFetchAndAddMutexUniq)");
   }
 }
 
@@ -1067,8 +1067,8 @@ void invokeSpinLockSemaphore(cudaSemaphore_t sem, float * storage_d,
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelSpinLockSemaphore)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelSpinLockSemaphore)");
   }
 }
 
@@ -1085,8 +1085,8 @@ void invokeSpinLockSemaphore_uniq(cudaSemaphore_t sem, float * storage_d,
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelSpinLockSemaphoreUniq)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelSpinLockSemaphoreUniq)");
   }
 }
 
@@ -1104,8 +1104,8 @@ void invokeEBOSemaphore(cudaSemaphore_t sem, float * storage_d, const int maxVal
 
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelEBOSemaphore)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelEBOSemaphore)");
   }
 }
 
@@ -1122,8 +1122,8 @@ void invokeEBOSemaphore_uniq(cudaSemaphore_t sem, float * storage_d,
     
     // Blocks until the device has completed all preceding requested
     // tasks (make sure that the device returned before continuing).
-    cudaError_t cudaErr = cudaThreadSynchronize();
-    checkError(cudaErr, "cudaThreadSynchronize (kernelEBOSemaphoreUniq)");
+    cudaError_t cudaErr = cudaDeviceSynchronize();
+    checkError(cudaErr, "cudaDeviceSynchronize (kernelEBOSemaphoreUniq)");
   }
 }
 
@@ -1492,7 +1492,7 @@ int main(int argc, char ** argv)
   }
 
   // NOTE: region of interest begins here
-  cudaThreadSynchronize();
+  cudaDeviceSynchronize();
   cudaEventRecord(start, 0);
 
   switch (syncPrim) {
@@ -1610,7 +1610,7 @@ int main(int argc, char ** argv)
   }
 
   // NOTE: Can end simulation here if don't care about output checking
-  cudaThreadSynchronize();
+  cudaDeviceSynchronize();
   cudaEventRecord(end, 0);
   cudaEventSynchronize(end);
   cudaEventElapsedTime(&elapsedTime, start, end);

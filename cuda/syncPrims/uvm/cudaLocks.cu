@@ -35,7 +35,7 @@ cudaError_t cudaLocksInit(const int maxBlocksPerKernel, const int numMutexes,
   cudaErr = cudaGetLastError();
   checkError(cudaErr, "Before memset");
 
-  cudaThreadSynchronize();
+  cudaDeviceSynchronize();
   cudaEventRecord(start, 0);
 
   cudaMemset(cpuLockData->barrierBuffers, 0, sizeof(unsigned int) * cpuLockData->arrayStride * 2);
@@ -66,7 +66,7 @@ cudaError_t cudaLocksInit(const int maxBlocksPerKernel, const int numMutexes,
 
   cudaMemset(cpuLockData->semaphoreBuffers, 0, sizeof(unsigned int) * cpuLockData->semaphoreCount * 4);
 
-  cudaThreadSynchronize();
+  cudaDeviceSynchronize();
   cudaEventRecord(end, 0);
   cudaEventSynchronize(end);
   float elapsedTime = 0.0f;
