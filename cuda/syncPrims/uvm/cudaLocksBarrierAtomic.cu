@@ -50,7 +50,11 @@ inline __device__ void cudaBarrierAtomicSub(unsigned int * globalBarr,
     // do exponential backoff to reduce the number of times we pound the global
     // barrier
     if (!*done) {
+#if ((HAS_NANOSLEEP == 1) && (CUDART_VERSION >= 1100))
+      __nanosleep(backoff);
+#else
       for (int i = 0; i < backoff; ++i) { ; }
+#endif
       __syncthreads();
     }
   }

@@ -42,7 +42,11 @@ inline __device__ void cudaMutexEBOLock(const cudaMutex_t mutex,
       {
         // if we failed in acquiring the lock, wait for a little while before
         // trying again
-        for (int j = 0; j < backoff; ++j) { ; }
+#if ((HAS_NANOSLEEP == 1) && (CUDART_VERSION >= 1100))
+        __nanosleep(backoff);
+#else
+        for (int i = 0; i < backoff; ++i) { ; }
+#endif
         // (capped) exponential backoff
         backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
       }
@@ -98,7 +102,11 @@ inline __device__ void cudaMutexEBOLockLocal(const cudaMutex_t mutex,
       {
         // if we failed in acquiring the lock, wait for a little while before
         // trying again
-        for (int j = 0; j < backoff; ++j) { ; }
+#if ((HAS_NANOSLEEP == 1) && (CUDART_VERSION >= 1100))
+        __nanosleep(backoff);
+#else
+        for (int i = 0; i < backoff; ++i) { ; }
+#endif
         // (capped) exponential backoff
         backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
       }

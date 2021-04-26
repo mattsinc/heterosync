@@ -161,7 +161,11 @@ inline __device__ void cudaSemaphoreEBOWait(const cudaSemaphore_t sem,
     {
       // if we failed to enter the semaphore, wait for a little while before
       // trying again
-      for (int j = 0; j < backoff; ++j) { dummySum += j; }
+#if ((HAS_NANOSLEEP == 1) && (CUDART_VERSION >= 1100))
+      __nanosleep(backoff);
+#else
+      for (int i = 0; i < backoff; ++i) { dummySum += i; }
+#endif
       /*
         for writers increse backoff a lot because failing means readers are in
         the CS currently -- most important for non-unique because all TBs on
@@ -382,7 +386,11 @@ inline __device__ void cudaSemaphoreEBOWaitLocal(const cudaSemaphore_t sem,
     {
       // if we failed to enter the semaphore, wait for a little while before
       // trying again
-      for (int j = 0; j < backoff; ++j) { dummySum += j; }
+#if ((HAS_NANOSLEEP == 1) && (CUDART_VERSION >= 1100))
+      __nanosleep(backoff);
+#else
+      for (int i = 0; i < backoff; ++i) { dummySum += i; }
+#endif
       // (capped) exponential backoff
       backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
     }

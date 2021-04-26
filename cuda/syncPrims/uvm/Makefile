@@ -6,10 +6,12 @@ ifeq ($(shell uname -m), x86_64)
      endif
 endif
 
+# Volta+ parts with CUDA 11+ have nanosleep
+HAS_NANOSLEEP ?= 0
 CC := nvcc
 INCLUDE := $(CUDA_DIR)/include
-OPTS := -O3 -gencode arch=compute_60,code=sm_60 $(CUDA_CPPFLAGS)
-OPTS_DEBUG := -g -O0 -gencode arch=compute_60,code=sm_60 $(CUDA_CPPFLAGS)
+OPTS := -O3 -gencode arch=compute_60,code=sm_60 $(CUDA_CPPFLAGS) -DHAS_NANOSLEEP=$(HAS_NANOSLEEP)
+OPTS_DEBUG := -g -O0 -gencode arch=compute_60,code=sm_60 $(CUDA_CPPFLAGS) -DHAS_NANOSLEEP=$(HAS_NANOSLEEP)
 
 SRC = main.cu
 
