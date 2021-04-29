@@ -10,8 +10,9 @@ endif
 HAS_NANOSLEEP ?= 0
 CC := nvcc
 INCLUDE := $(CUDA_DIR)/include
-OPTS := -O3 -gencode arch=compute_60,code=sm_60 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 $(CUDA_CPPFLAGS) -DHAS_NANOSLEEP=$(HAS_NANOSLEEP)
-OPTS_DEBUG := -g -O0 -gencode arch=compute_60,code=sm_60 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80 $(CUDA_CPPFLAGS) -DHAS_NANOSLEEP=$(HAS_NANOSLEEP)
+GENCODE := -gencode arch=compute_60,code=sm_60 -gencode arch=compute_70,code=sm_70 -gencode arch=compute_75,code=sm_75 -gencode arch=compute_80,code=sm_80
+OPTS := -O3 $(GENCODE) $(CUDA_CPPFLAGS) -DHAS_NANOSLEEP=$(HAS_NANOSLEEP)
+OPTS_DEBUG := -G -g -O0 $(GENCODE) $(CUDA_CPPFLAGS) -DHAS_NANOSLEEP=$(HAS_NANOSLEEP)
 
 SRC = main.cu
 
