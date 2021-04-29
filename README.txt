@@ -21,7 +21,12 @@ Contents: The following Synchronization Primitives (SyncPrims) microbenchmarks a
 
 All microbenchmarks access shared data that requires synchronization.
 
-A subsequent commit will add the Relaxed Atomics microbenchmarks discussed in our paper.
+The following relaxed atomics microbenchmarks from our paper are included:
+
+- Flags: Uses a shared global flag (stop) to communicate between threads in different TBs.  The threads repeatedly loop until the "stop" flag is set by the main thread, and set a shared "dirty" flag if they update data.
+- Reference Counter: Use shared global counters to keep track of how many threads are accessing a shared object.  When a thread stops accessing the shared object, the count is decremented by 1, and similarly the count is incremented by 1 when a thread starts accessing the shared object.
+- Seqlocks: A low cost, non-blocking synchronization mechanism that is used as an alternative to mutex locks in CPUs.  This microbenchmark applies the same sort of mechanism to GPUs.
+- Split Counter: Uses a shared global counter, potentially with an approximate counter value, and partial sums, to model split counter usage in library code.
 
 USAGE
 -----
@@ -32,7 +37,7 @@ Since all of the microbenchmarks run from a single main function, users only nee
 
 Running:
 
-The usage of the microbenchmarks is as follows:
+The usage of the synchronization primitives microbenchmarks is as follows:
 
 ./allSyncPrims-1kernel <syncPrim> <numLdSt> <numTBs> <numCSIters>
 
@@ -74,6 +79,8 @@ The usage of the microbenchmarks is as follows:
 <numTBs> is a positive integer representing the number of thread blocks (TBs) to execute.  For many of the microbenchmarks (especially the barriers), this number needs to be divisible by the number of SMs on the GPU.
 
 <numCSIters> is a positive integer representing the number of iterations of the critical section.
+
+For the relaxed atomics microbenchmarks, see the run files in each sub-folder for an example of how to run them.
 
 IISWC '17 VERSION
 -----------------
@@ -129,7 +136,7 @@ If you publish work that uses these benchmarks, please cite the following papers
 
 2.  J. A. Stuart and J. D. Owens, “Efficient Synchronization Primitives for GPUs,” CoRR, vol. abs/1110.4623, 2011
 
-ACKNOWLEDGEMENTS
+ACKNOWLEDGMENTS
 ----------------
 
 This work was supported in part by a Qualcomm Innovation Fellowship for Sinclair, the National Science Foundation under grants CCF 13-02641 and CCF 16-19245, the Center for Future Architectures Research (C-FAR), a Semiconductor Research Corporation program sponsored by MARCO and DARPA, and the Center for Applications Driving Architectures (ADA), one of six centers of JUMP, a Semiconductor Research Corporation program co-sponsored by DARPA.
