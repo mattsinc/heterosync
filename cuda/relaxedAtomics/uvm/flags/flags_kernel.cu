@@ -147,8 +147,12 @@ __device__ void workerTBs(unsigned int * stop,
       }
       __syncthreads();
 
+#if ((HAS_NANOSLEEP == 1) && (CUDART_VERSION >= 1100))
+      __nanosleep(backoff);
+#else
       // do local computations so stop isn't immediately checked
       for (int i = 0; i < backoff; ++i) { ; }
+#endif
     }
 
     // check if stop is set for next loop iteration
