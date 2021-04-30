@@ -183,7 +183,7 @@ inline __device__ void writer_tfs(unsigned int * seqlock,
 
   /*
     atomicOr is a reprogrammed (unpaired) atomic store, but these accesses can
-    be overlapped.  Write the curren sequence number, value doesn't really
+    be overlapped.  Write the current sequence number, value doesn't really
     matter.
   */
   /*
