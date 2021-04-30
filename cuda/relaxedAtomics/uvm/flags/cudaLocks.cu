@@ -1,6 +1,7 @@
 #include "cudaLocks.h"
 
-cudaError_t cudaLocksInit(const int maxBlocksPerKernel, const bool pageAlign)
+cudaError_t cudaLocksInit(const int maxBlocksPerKernel, const int numSMs,
+                          const bool pageAlign)
 {
   cudaError_t cudaErr = cudaGetLastError();
   checkError(cudaErr, "Start cudaLocksInit");
@@ -11,7 +12,7 @@ cudaError_t cudaLocksInit(const int maxBlocksPerKernel, const bool pageAlign)
 
   // initialize some of the lock data's values
   cpuLockData->maxBufferSize          = maxBlocksPerKernel;
-  cpuLockData->arrayStride            = (maxBlocksPerKernel + NUM_SM) / 16 * 16;
+  cpuLockData->arrayStride            = (maxBlocksPerKernel + numSMs) / 16 * 16;
 
   cudaMalloc(&cpuLockData->barrierBuffers,   sizeof(unsigned int) * cpuLockData->arrayStride * 2);
 

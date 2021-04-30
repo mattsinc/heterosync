@@ -2,11 +2,8 @@
 #include <assert.h>
 #include "cuda_error.h"
 
-#define NUM_SM 5
 #define WARP_SIZE 32
 #define HALF_WARP_SIZE (WARP_SIZE >> 1)
-// ** TODO: Need to update this to reflect newer GPUs
-#define MAX_BLOCKS (NUM_SM * 7) /* 7 TBs per SM is current limit given scratchpad allocations */
 #define UINT32_MAX ((unsigned int)-1)
 /* the input array in the .so file is 64KB * 10, can't have more accesses */
 #define MAX_NUM_ACCS ((64 * 1024) * 10)
@@ -14,6 +11,10 @@
 #include <cudaLocks.cu>
 #include <cudaLocksBarrierFast.cu>
 #include <flags_kernel.cu>
+
+// program globals
+int NUM_SM = 0; // number of SMs our GPU has
+int MAX_BLOCKS = 0;
 
 int main(int argc, char ** argv) {
   // local variables
@@ -55,6 +56,19 @@ int main(int argc, char ** argv) {
   const unsigned int numAccs = (numIters * numTBs);
   assert(numAccs <= MAX_NUM_ACCS);
 
+  // determine number of SMs and max TB/SM
+  cudaDeviceProp deviceProp;
+  cudaGetDeviceProperties(&deviceProp, 0);
+  NUM_SM = deviceProp.multiProcessorCount;
+  /* 7 TBs per SM is current limit given scratchpad allocations */
+  MAX_BLOCKS = 7 * NUM_SM;
+
+#ifdef DEBUG
+  const int maxTBPerSM = deviceProp.maxThreadsPerBlock/NUM_THREADS_PER_BLOCK;
+  fprintf(stdout, "# SM: %d, Max Thrs/TB: %d, Max TB/SM: %d, Max # TB: %d\n",
+          NUM_SM, deviceProp.maxThreadsPerBlock, maxTBPerSM, MAX_BLOCKS);
+#endif
+
   fprintf(stdout, "Initializing data...\n");
   fprintf(stdout, "...allocating memory.\n");
   // each thread gets its own location in the output array
@@ -73,7 +87,7 @@ int main(int argc, char ** argv) {
   cudaMallocManaged(&dirty, 16 * sizeof(unsigned int));
   cudaMallocManaged(&stop, 16 * sizeof(unsigned int));
   // initialize barrier array -- *4 to provide some extra space
-  cudaLocksInit(MAX_BLOCKS*4, pageAlign);
+  cudaLocksInit(MAX_BLOCKS*4, NUM_SM, pageAlign);
   // initialize rand
   srand(2018);
 
@@ -108,7 +122,8 @@ int main(int argc, char ** argv) {
                                      numRepeats,
                                      cutoffVal,
                                      numIters,
-				     MAX_BLOCKS);
+                                     MAX_BLOCKS,
+                                     NUM_SM);
     cudaDeviceSynchronize();
   }
 

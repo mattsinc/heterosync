@@ -24,7 +24,7 @@ __device__ void mainTB(unsigned int * stop,
                        const int perSM_blockID,
                        const int numTBs_perSM,
                        const int arrayStride,
-		       const int maxBlocks) {
+                       const int maxBlocks) {
   // local variables
   volatile __shared__ unsigned int mainTBSum[256]; // local per TB counter
   __shared__ bool isDirty;
@@ -61,7 +61,7 @@ __device__ void mainTB(unsigned int * stop,
   */
   joinLFBarrier_helper(barrierBuffers, perSMBarrierBuffers, numBlocksAtBarr,
                        smID, perSM_blockID, numTBs_perSM, arrayStride,
-		       maxBlocks);
+                       maxBlocks);
 
   /*
     Step 4 -- once all TBs have joined the barrier, check dirty and access
@@ -100,7 +100,7 @@ __device__ void workerTBs(unsigned int * stop,
                           const int arrayStride,
                           const float cutoffVal,
                           const unsigned int numIters,
-			  const int maxBlocks) {
+                          const int maxBlocks) {
   // local variables
   unsigned int randTBLoc = (blockIdx.x * blockDim.x);
   int myNumIters = 0; // number of times I have executed the loop
@@ -183,14 +183,15 @@ __global__ void flags_kernel(unsigned int * barrierBuffers,
                              const int numRepeats,
                              const float cutoffVal,
                              const unsigned int numIters,
-			     const int maxBlocks) {
+                             const int maxBlocks,
+                             const int numSMs) {
   // local variables
   const bool isMainTB = (blockIdx.x == (gridDim.x - 1)); // last TB is main TB
   const bool isMasterThread = (threadIdx.x == 0);
   const unsigned int myBaseLoc = (blockIdx.x * blockDim.x) + threadIdx.x;
-  // represents the number of TBs going to the barrier (max NUM_SM, gridDim.x if
+  // represents the number of TBs going to the barrier (max numSMs, gridDim.x if
   // fewer TBs than SMs).  Also represents the number of TBs there are.
-  const unsigned int numBlocksAtBarr = ((gridDim.x < NUM_SM) ? gridDim.x : NUM_SM);
+  const unsigned int numBlocksAtBarr = ((gridDim.x < numSMs) ? gridDim.x : numSMs);
   const int smID = (blockIdx.x % numBlocksAtBarr); // mod by # SMs to get SM ID
   // determine if I'm TB 0 on my SM
   const int perSM_blockID = (blockIdx.x / numBlocksAtBarr);
