@@ -26,7 +26,6 @@ int main(int argc, char ** argv) {
 
   fprintf(stdout, "Initializing data...\n");
   fprintf(stdout, "...allocating memory.\n");
-  // ** TODO: separate host and device arrays still needed
   // every other thread in each TB gets its own counter
   cudaMallocManaged(&h_counters, (numThrs/2)*sizeof(unsigned int));
   // each thread gets its own location in the output array too
