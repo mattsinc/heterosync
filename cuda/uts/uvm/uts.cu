@@ -457,7 +457,9 @@ void callGPU()
 void *doWork(void * thread_id) {
   unsigned long tid = (unsigned long) thread_id;
 
+#ifdef DEBUG
   fprintf(stdout, "Thread ID: %ld\n", tid);
+#endif
   // We want to use every CPU core except the one which shares a node with the
   // GPU core. That core's ID is 1. Therefore, don't bind to 1 - bind to the
   // first unallocated core. As a result, however, one of the dummy threads is

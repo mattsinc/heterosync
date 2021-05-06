@@ -10,7 +10,7 @@ CC := nvcc
 INCLUDE := $(CUDA_DIR)/include
 GENCODE := -gencode arch=compute_60,code=sm_60 -gencode arch=compute_70,code=sm_70
 OPTS := -O3 $(GENCODE) $(CUDA_CPPFLAGS)
-OPTS_DEBUG := -G -g -O0 $(GENCODE) $(CUDA_CPPFLAGS)
+OPTS_DEBUG := -G -g -O0 $(GENCODE) $(CUDA_CPPFLAGS) -DDEBUG
 
 SRC = uts.cu
 
