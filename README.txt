@@ -27,6 +27,7 @@ The following relaxed atomics microbenchmarks from our paper are included:
 - Reference Counter: Use shared global counters to keep track of how many threads are accessing a shared object.  When a thread stops accessing the shared object, the count is decremented by 1, and similarly the count is incremented by 1 when a thread starts accessing the shared object.
 - Seqlocks: A low cost, non-blocking synchronization mechanism that is used as an alternative to mutex locks in CPUs.  This microbenchmark applies the same sort of mechanism to GPUs.
 - Split Counter: Uses a shared global counter, potentially with an approximate counter value, and partial sums, to model split counter usage in library code.
+- UTS: an unbalanced search tree that performs dynamic load balancing across CPU and GPU threads.
 
 USAGE
 -----
@@ -80,7 +81,7 @@ The usage of the synchronization primitives microbenchmarks is as follows:
 
 <numCSIters> is a positive integer representing the number of iterations of the critical section.
 
-For the relaxed atomics microbenchmarks, see the run files in each sub-folder for an example of how to run them.
+For the relaxed atomics microbenchmarks and UTS, see the run files in each sub-folder for an example of how to run them.
 
 IISWC '17 VERSION
 -----------------
