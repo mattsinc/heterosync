@@ -121,7 +121,7 @@ Common programming languages like C++ and OpenCL, which use a data-centric appro
 CUDA UVM VERSION
 ----------------
 
-The CUDA UVM version is based on CUDA SDK 6.0, and uses CUDA's unified virtual memory to avoid making explicit copies of some of the arrays and structures.  Unlike the IISWC '17 version, this version does not make any assumptions about ordering atomics provide.  Nor does it require epilogues.  Instead, it adds the appropriate CUDA fence commands around atomic accesses to ensure the SC-for-DRF ordering is provided.  This version has been tested on a Pascal P100 GPU, but has not been tested as rigorously as the IISWC '17 version.
+The CUDA UVM version is based on CUDA SDK 9.1, and uses CUDA's unified virtual memory to avoid making explicit copies of some of the arrays and structures.  Unlike the IISWC '17 version, this version does not make any assumptions about ordering atomics provide.  Nor does it require epilogues.  Instead, it adds the appropriate CUDA fence commands around atomic accesses to ensure the SC-for-DRF ordering is provided.  This version has been tested on a Pascal P100 GPU, but has not been tested as rigorously as the IISWC '17 version.
 
 HIP UVM VERSION
 ----------------
