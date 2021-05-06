@@ -1,9 +1,8 @@
-#CUDA_DIR ?= /usr/local/cuda
-CUDA_DIR ?= /home/komurav1/installs/cuda-3.1/cuda
+CUDA_DIR ?= /usr/local/cuda
 CUDA_LIB_DIR := $(CUDA_DIR)/lib
 ifeq ($(shell uname -m), x86_64)
      ifeq ($(shell if test -d $(CUDA_DIR)/lib64; then echo T; else echo F; fi), T)
-		   CUDA_LIB_DIR := $(CUDA_DIR)/lib64
+	   CUDA_LIB_DIR := $(CUDA_DIR)/lib64
      endif
 endif
 
@@ -37,4 +36,3 @@ clean: $(SRC)
 #uts: uts.cu treebar.h gpuKernels_util.cu
 #	nvcc  -o uts uts.cu -lcudart
 #	#nvcc -arch sm_20 -w -cuda uts.cu -keep
-	
