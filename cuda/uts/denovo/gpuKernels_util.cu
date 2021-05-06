@@ -23,16 +23,17 @@
 
 __device__ __forceinline__ void __gpuLock(unsigned int * lock_address)
 {
-  unsigned int returnVal;
+  unsigned int returnVal = 0;
   do {
     returnVal = atomicCAS(lock_address, 0, 1);
+    // acquire semantics needed here
   } while (returnVal != 0);
 }
 
 // Use an unpaired atomic to check if the lock is held first
 __device__ __forceinline__ void __gpuLockRelaxed(unsigned int * lock_address)
 {
-  unsigned int returnVal;
+  unsigned int returnVal = 0;
   do {
     if (atomicAdd(lock_address, 0) == 0) {
       returnVal = atomicCAS(lock_address, 0, 1);
