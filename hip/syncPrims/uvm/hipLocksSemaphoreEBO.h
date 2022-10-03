@@ -35,8 +35,8 @@ inline __device__ bool hipSemaphoreEBOTryWait(const hipSemaphore_t sem,
                                               unsigned int * semaphoreBuffers,
                                               const int NUM_CU)
 {
-  const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
-                               hipThreadIdx_z == 0);
+  const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
+                               threadIdx.z == 0);
   /*
     Each sem has NUM_CU * 4 locations in the buffer.  Of these locations, each
     CU uses 4 of them (current count, head, tail, max count).  For the global 
@@ -152,8 +152,8 @@ inline __device__ void hipSemaphoreEBOWait(const hipSemaphore_t sem,
                                            const int NUM_CU)
 {
   __shared__ int backoff;
-  const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
-                               hipThreadIdx_z == 0);
+  const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
+                               threadIdx.z == 0);
 
   if (isMasterThread)
   {
@@ -191,8 +191,8 @@ inline __device__ void hipSemaphoreEBOPost(const hipSemaphore_t sem,
                                            unsigned int * semaphoreBuffers,
                                            const int NUM_CU)
 {
-  const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
-                               hipThreadIdx_z == 0);
+  const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
+                               threadIdx.z == 0);
   /*
     Each sem has NUM_CU * 4 locations in the buffer.  Of these locations, each
     CU uses 4 of them (current count, head, tail, max count).  For the global
@@ -251,8 +251,8 @@ inline __device__ bool hipSemaphoreEBOTryWaitLocal(const hipSemaphore_t sem,
                                                    unsigned int * semaphoreBuffers,
                                                    const int NUM_CU)
 {
-  const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
-                               hipThreadIdx_z == 0);
+  const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
+                               threadIdx.z == 0);
   /*
     Each sem has NUM_CU * 4 locations in the buffer.  Of these locations, each
     CU gets 4 of them (current count, head, tail, max count).  So CU 0 starts
@@ -371,8 +371,8 @@ inline __device__ void hipSemaphoreEBOWaitLocal(const hipSemaphore_t sem,
                                                 const int NUM_CU)
 {
   __shared__ int backoff;
-  const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
-                               hipThreadIdx_z == 0);
+  const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
+                               threadIdx.z == 0);
 
   if (isMasterThread)
   {
@@ -405,8 +405,8 @@ inline __device__ void hipSemaphoreEBOPostLocal(const hipSemaphore_t sem,
                                                 unsigned int * semaphoreBuffers,
                                                 const int NUM_CU)
 {
-  const bool isMasterThread = (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 &&
-                               hipThreadIdx_z == 0);
+  const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
+                               threadIdx.z == 0);
   // Each sem has NUM_CU * 4 locations in the buffer.  Of these locations, each
   // CU gets 4 of them.  So CU 0 starts at semaphoreBuffers[sem * 4 * NUM_CU].
   unsigned int * const currCount = semaphoreBuffers + ((sem * 4 * NUM_CU) +
