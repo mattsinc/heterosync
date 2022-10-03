@@ -12,15 +12,15 @@ inline __host__ hipError_t hipSemaphoreCreateSpin(hipSemaphore_t * const handle,
   // Here we set the initial value to be count+1, this allows us to do an
   // atomicExch(sem, 0) and basically use the semaphore value as both a
   // lock and a semaphore.
-  unsigned int initialValue = (count + 1), zero = 0;
+  unsigned int initialValue = (count + 1), zero = 0, one = 1;
   *handle = semaphoreNumber;
   for (int id = 0; id < NUM_CU; ++id) { // need to set these values for all CUs
     // Current count of the semaphore hence initialized to count+1
     hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 5 * NUM_CU) + (id * 5))]), &initialValue, sizeof(initialValue), hipMemcpyHostToDevice);
     // Lock variable initialized to 0
     hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 5 * NUM_CU) + (id * 5)) + 1]), &zero, sizeof(zero), hipMemcpyHostToDevice);
-    // Writer waiting flag initialized to 0
-    hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 5 * NUM_CU) + (id * 5)) + 2]), &zero, sizeof(zero), hipMemcpyHostToDevice);
+    // Writer waiting flag initialized to 1 to force writer to go first
+    hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 5 * NUM_CU) + (id * 5)) + 2]), &one, sizeof(one), hipMemcpyHostToDevice);
     // Max count for the semaphore hence initialized it to count+1
     hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 5 * NUM_CU) + (id * 5)) + 3]), &initialValue, sizeof(initialValue), hipMemcpyHostToDevice);
     // Priority count initialized to 0

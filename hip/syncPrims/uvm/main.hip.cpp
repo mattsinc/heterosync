@@ -977,12 +977,6 @@ __global__ void kernelSpinLockSemaphorePriority(hipSemaphore_t sem,
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
-    /*
-      NOTE: There is a race here for entering the critical section.  Most
-      importantly, it means that the at least one of the readers could win and
-      thus the readers will read before the writer has had a chance to write
-      the data.
-    */
     hipSemaphoreSpinWaitPriority(sem, isWriter, maxSemCount,
                           gpuLockData->semaphoreBuffers, NUM_CU);
 
@@ -1048,12 +1042,6 @@ __global__ void kernelSpinLockSemaphoreUniq(hipSemaphore_t sem,
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
-    /*
-      NOTE: There is a race here for entering the critical section.  Most
-      importantly, it means that the at least one of the readers could win and
-      thus the readers will read before the writer has had a chance to write
-      the data.
-    */
     hipSemaphoreSpinWaitLocal(sem, cuID, isWriter, maxSemCount,
                                gpuLockData->semaphoreBuffers, NUM_CU);
 
@@ -1124,12 +1112,6 @@ __global__ void kernelSpinLockSemaphoreUniqPriority(hipSemaphore_t sem,
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
-    /*
-      NOTE: There is a race here for entering the critical section.  Most
-      importantly, it means that the at least one of the readers could win and
-      thus the readers will read before the writer has had a chance to write
-      the data.
-    */
     hipSemaphoreSpinWaitLocalPriority(sem, cuID, isWriter, maxSemCount,
                                gpuLockData->semaphoreBuffers, NUM_CU);
 
@@ -1206,12 +1188,6 @@ __global__ void kernelEBOSemaphore(hipSemaphore_t sem, float * storage,
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
-    /*
-      NOTE: There is a race here for entering the critical section.  Most
-      importantly, it means that the at least one of the readers could win and
-      thus the readers will read before the writer has had a chance to write
-      the data.
-    */
    hipSemaphoreEBOWait(sem, isWriter, maxSemCount,
                         gpuLockData->semaphoreBuffers, NUM_CU);
 
@@ -1281,14 +1257,8 @@ __global__ void kernelEBOSemaphorePriority(hipSemaphore_t sem, float * storage,
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
-    /*
-      NOTE: There is a race here for entering the critical section.  Most
-      importantly, it means that the at least one of the readers could win and
-      thus the readers will read before the writer has had a chance to write
-      the data.
-    */
-   hipSemaphoreEBOWaitPriority(sem, isWriter, maxSemCount,
-                        gpuLockData->semaphoreBuffers, NUM_CU);
+    hipSemaphoreEBOWaitPriority(sem, isWriter, maxSemCount,
+				gpuLockData->semaphoreBuffers, NUM_CU);
 
     // writer WG writes all the data that the WGs on this CU access
     if (isWriter) {
@@ -1351,12 +1321,6 @@ __global__ void kernelEBOSemaphoreUniq(hipSemaphore_t sem, float * storage,
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
-    /*
-      NOTE: There is a race here for entering the critical section.  Most
-      importantly, it means that the at least one of the readers could win and
-      thus the readers will read before the writer has had a chance to write
-      the data.
-    */
     hipSemaphoreEBOWaitLocal(sem, cuID, isWriter, maxSemCount,
                               gpuLockData->semaphoreBuffers, NUM_CU);
 
@@ -1426,12 +1390,6 @@ __global__ void kernelEBOSemaphoreUniqPriority(hipSemaphore_t sem, float * stora
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
-    /*
-      NOTE: There is a race here for entering the critical section.  Most
-      importantly, it means that the at least one of the readers could win and
-      thus the readers will read before the writer has had a chance to write
-      the data.
-    */
     hipSemaphoreEBOWaitLocalPriority(sem, cuID, isWriter, maxSemCount,
                               gpuLockData->semaphoreBuffers, NUM_CU);
 
