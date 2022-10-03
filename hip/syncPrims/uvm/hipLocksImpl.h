@@ -34,7 +34,7 @@ hipError_t hipLocksInit(const int maxWGsPerKernel, const int numMutexes,
   hipMalloc(&cpuLockData->mutexBufferHeads, sizeof(unsigned int) * cpuLockData->mutexCount);
   hipMalloc(&cpuLockData->mutexBufferTails, sizeof(unsigned int) * cpuLockData->mutexCount);
 
-  hipMalloc(&cpuLockData->semaphoreBuffers, sizeof(unsigned int) * 4 * cpuLockData->semaphoreCount);
+  hipMalloc(&cpuLockData->semaphoreBuffers, sizeof(unsigned int) * 5 * cpuLockData->semaphoreCount);
 
   hipEvent_t start, end;
   hipEventCreate(&start);
@@ -76,7 +76,7 @@ hipError_t hipLocksInit(const int maxWGsPerKernel, const int numMutexes,
   }
 
   hipMemset(cpuLockData->semaphoreBuffers, 0,
-            sizeof(unsigned int) * cpuLockData->semaphoreCount * 4);
+            sizeof(unsigned int) * cpuLockData->semaphoreCount * 5);
 
   hipDeviceSynchronize();
   hipEventRecord(end, 0);
@@ -95,6 +95,7 @@ hipError_t hipLocksInit(const int maxWGsPerKernel, const int numMutexes,
 hipError_t hipLocksDestroy()
 {
   if (cpuLockData == NULL) { return hipErrorInitializationError; }
+  hipFree(cpuLockData->barrierBuffers);
   hipFree(cpuLockData->mutexBuffers);
   hipFree(cpuLockData->mutexBufferHeads);
   hipFree(cpuLockData->mutexBufferTails);
