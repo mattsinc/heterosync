@@ -491,7 +491,7 @@ inline __device__ bool hipSemaphoreEBOTryWaitPriority(const hipSemaphore_t sem,
     acq1 = false;
     while(atomicCAS(priority, 0, 0) !=0){
       // Spinning until all blocks wanting to exit the semaphore have exited
-      for (int i = 0; i < backoff; ++i) { ; }
+      sleepFunc(backoff);
       // Increase backoff to avoid repeatedly hammering priority flag
       backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
     }
@@ -591,12 +591,10 @@ inline __device__ void hipSemaphoreEBOWaitPriority(const hipSemaphore_t sem,
   __shared__ int backoff;
   const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
                                threadIdx.z == 0);
-  volatile __shared__ int dummySum;
 
   if (isMasterThread)
   {
     backoff = 1;
-    dummySum = 0;
   }
   __syncthreads();
 
@@ -607,7 +605,7 @@ inline __device__ void hipSemaphoreEBOWaitPriority(const hipSemaphore_t sem,
     {
       // if we failed to enter the semaphore, wait for a little while before
       // trying again
-      for (int j = 0; j < backoff; ++j) { dummySum += j; }
+      sleepFunc(backoff);
       /*
         for writers increse backoff a lot because failing means readers are in
         the CS currently -- most important for non-unique because all WGs on
@@ -733,7 +731,7 @@ inline __device__ bool hipSemaphoreEBOTryWaitLocalPriority(const hipSemaphore_t 
     acq1 = false;
     while(atomicCAS(priority, 0, 0) !=0){
       // Spinning until all blocks wanting to exit the semaphore have exited
-      for (int i = 0; i < backoff; ++i) { ; }
+      sleepFunc(backoff);
       // Increase backoff to avoid repeatedly hammering priority flag
       backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
     }
@@ -835,12 +833,10 @@ inline __device__ void hipSemaphoreEBOWaitLocalPriority(const hipSemaphore_t sem
   __shared__ int backoff;
   const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
                                threadIdx.z == 0);
-  volatile __shared__ int dummySum;
 
   if (isMasterThread)
   {
     backoff = 1;
-    dummySum = 0;
   }
   __syncthreads();
 
@@ -851,7 +847,7 @@ inline __device__ void hipSemaphoreEBOWaitLocalPriority(const hipSemaphore_t sem
     {
       // if we failed to enter the semaphore, wait for a little while before
       // trying again
-      for (int j = 0; j < backoff; ++j) { dummySum += j; }
+      sleepFunc(backoff);
       // (capped) exponential backoff
       backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
     }

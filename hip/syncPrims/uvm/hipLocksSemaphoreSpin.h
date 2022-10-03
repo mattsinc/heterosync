@@ -445,11 +445,11 @@ inline __device__ bool hipSemaphoreSpinTryWaitPriority(const hipSemaphore_t sem,
   if (isMasterThread)
   {
     acq1 = false;
-    while(atomicCAS(priority, 0, 0) != 0 ){
-     // Spinning until all blocks wanting to exit the semaphore have exited
-     sleepFunc(backoff);
-     // Increase backoff to avoid repeatedly hammering priority flag
-     backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
+    while (atomicCAS(priority, 0, 0) != 0) {
+      // Spinning until all blocks wanting to exit the semaphore have exited
+      sleepFunc(backoff);
+      // Increase backoff to avoid repeatedly hammering priority flag
+      backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
     }
     // try to acquire the sem head "lock"
     if (atomicCAS(lock, 0, 1) == 0) {
