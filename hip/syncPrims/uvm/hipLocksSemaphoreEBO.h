@@ -182,7 +182,6 @@ inline __device__ void hipSemaphoreEBOWait(const hipSemaphore_t sem,
     }
     __syncthreads();
   }
-  __syncthreads();
 }
 
 inline __device__ void hipSemaphoreEBOPost(const hipSemaphore_t sem,
@@ -264,8 +263,8 @@ inline __device__ bool hipSemaphoreEBOTryWaitLocal(const hipSemaphore_t sem,
     CU gets 4 of them (current count, head, tail, max count).  So CU 0 starts
     at semaphoreBuffers[sem * 4 * NUM_CU].
   */
-  unsigned int * const currCount = semaphoreBuffers + ((sem * 4 * NUM_CU) +
-                                                       (cuID * 4));
+  unsigned int * const currCount = semaphoreBuffers +
+                                       ((sem * 4 * NUM_CU) + (cuID * 4));
   unsigned int * const lock = currCount + 1;
   /*
     Reuse the tail for the "writers are waiting" flag since tail is unused.
@@ -424,7 +423,6 @@ inline __device__ void hipSemaphoreEBOPostLocal(const hipSemaphore_t sem,
 
   while (!acquired)
   {
-    __syncthreads();
     if (isMasterThread)
     {
       /*
@@ -631,7 +629,6 @@ inline __device__ void hipSemaphoreEBOWaitPriority(const hipSemaphore_t sem,
     }
     __syncthreads();
   }
-  __syncthreads();
 }
 
 inline __device__ void hipSemaphoreEBOPostPriority(const hipSemaphore_t sem,
@@ -683,7 +680,6 @@ inline __device__ void hipSemaphoreEBOPostPriority(const hipSemaphore_t sem,
     }
     __syncthreads();
   }
-  __syncthreads();
 
   if (isMasterThread) {
     /*
@@ -725,8 +721,8 @@ inline __device__ bool hipSemaphoreEBOTryWaitLocalPriority(const hipSemaphore_t 
     CU gets 5 of them (current count, head, tail, max count, priority).  So CU 0 starts
     at semaphoreBuffers[sem * 5 * NUM_CU].
   */
-  unsigned int * const currCount = semaphoreBuffers + ((sem * 5 * NUM_CU) +
-                                                       (cuID * 5));
+  unsigned int * const currCount = semaphoreBuffers +
+                                       ((sem * 5 * NUM_CU) + (cuID * 5));
   unsigned int * const lock = currCount + 1;
   /*
     Reuse the tail for the "writers are waiting" flag since tail is unused.
@@ -871,7 +867,6 @@ inline __device__ void hipSemaphoreEBOWaitLocalPriority(const hipSemaphore_t sem
     }
     __syncthreads();
   }
-  __syncthreads();
 }
 
 inline __device__ void hipSemaphoreEBOPostLocalPriority(const hipSemaphore_t sem,

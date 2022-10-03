@@ -231,9 +231,11 @@ inline __device__ bool hipSemaphoreSpinTryWaitLocal(const hipSemaphore_t sem,
 {
   const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
                                threadIdx.z == 0);
-  // Each sem has NUM_CU * 4 locations in the buffer.  Of these locations, each
-  // CU gets 4 of them (current count, head, tail, max count).  So CU 0 starts
-  // at semaphoreBuffers[sem * 4 * NUM_CU].
+  /*
+    Each sem has NUM_CU * 4 locations in the buffer.  Of these locations, each
+    CU gets 4 of them (current count, head, tail, max count).  So CU 0 starts
+    at semaphoreBuffers[sem * 4 * NUM_CU].
+  */
   unsigned int * const currCount = semaphoreBuffers +
                                        ((sem * 4 * NUM_CU) + (cuID * 4));
   unsigned int * const lock = currCount + 1;
@@ -338,7 +340,9 @@ inline __device__ bool hipSemaphoreSpinTryWaitLocal(const hipSemaphore_t sem,
   return true;
 }
 
+// same algorithm but with local scope
 inline __device__ void hipSemaphoreSpinWaitLocal(const hipSemaphore_t sem,
+
                                                  const unsigned int cuID,
                                                  const bool isWriter,
                                                  const unsigned int maxSemCount,
@@ -562,7 +566,7 @@ inline __device__ void hipSemaphoreSpinPostPriority(const hipSemaphore_t sem,
                                threadIdx.z == 0);
   /*
     Each sem has NUM_CU * 5 locations in the buffer.  Of these locations, each
-    SM uses 5 of them (current count, head, tail, max count, priority).  For the global
+    CU uses 5 of them (current count, head, tail, max count, priority).  For the global
     semaphore use semaphoreBuffers[sem * 5 * NUM_CU].
   */
   unsigned int * const currCount = semaphoreBuffers + (sem * 5 * NUM_CU);
@@ -629,18 +633,20 @@ inline __device__ void hipSemaphoreSpinPostPriority(const hipSemaphore_t sem,
 }
 
 // same wait algorithm but with local scope and per-CU synchronization
-inline __device__ bool hipSemaphoreSpinTryWaitLocalPriority (const hipSemaphore_t sem,
-                                                              const unsigned int cuID,
-                                                              const bool isWriter,
-                                                              const unsigned int maxSemCount,
-                                                              unsigned int * semaphoreBuffers,
-                                                              const int NUM_CU)
+inline __device__ bool hipSemaphoreSpinTryWaitLocalPriority(const hipSemaphore_t sem,
+                                                             const unsigned int cuID,
+                                                             const bool isWriter,
+                                                             const unsigned int maxSemCount,
+                                                             unsigned int * semaphoreBuffers,
+                                                             const int NUM_CU)
 {
   const bool isMasterThread = (threadIdx.x == 0 && threadIdx.y == 0 &&
                                threadIdx.z == 0);
-  // Each sem has NUM_CU * 5 locations in the buffer.  Of these locations, each
-  // SM gets 5 of them (current count, head, tail, max count, priority).  So SM 0 starts
-  // at semaphoreBuffers[sem * 5 * NUM_CU].
+  /*
+    Each sem has NUM_CU * 5 locations in the buffer.  Of these locations, each
+    CU gets 5 of them (current count, head, tail, max count, priority).  So CU 0 starts
+    at semaphoreBuffers[sem * 5 * NUM_CU].
+  */
   unsigned int * const currCount = semaphoreBuffers +
                                        ((sem * 5 * NUM_CU) + (cuID * 5));
   unsigned int * const lock = currCount + 1;

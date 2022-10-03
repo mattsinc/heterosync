@@ -898,12 +898,6 @@ __global__ void kernelSpinLockSemaphore(hipSemaphore_t sem,
 
   for (int i = 0; i < ITERATIONS; ++i)
   {
-    /*
-      NOTE: There is a race here for entering the critical section.  Most
-      importantly, it means that the at least one of the readers could win and
-      thus the readers will read before the writer has had a chance to write
-      the data.
-    */
     hipSemaphoreSpinWait(sem, isWriter, maxSemCount,
                           gpuLockData->semaphoreBuffers, NUM_CU);
 
