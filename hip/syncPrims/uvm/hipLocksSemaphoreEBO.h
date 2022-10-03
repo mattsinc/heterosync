@@ -24,7 +24,7 @@ inline __host__ hipError_t hipSemaphoreCreateEBO(hipSemaphore_t * const handle,
     // Max count for the semaphore hence initialized it to count+1
     hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 5 * NUM_CU) + (id * 5)) + 3]), &initialValue, sizeof(initialValue), hipMemcpyHostToDevice);
     // Priority count initialized to 0
-    hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 5 * NUM_CU) + (id * 5)) + 4]), &zero, sizeof(zero), hipMemcpyHostToDevice);  
+    hipMemcpy(&(cpuLockData->semaphoreBuffers[((semaphoreNumber * 5 * NUM_CU) + (id * 5)) + 4]), &zero, sizeof(zero), hipMemcpyHostToDevice);
   }
   return hipSuccess;
 }
@@ -39,7 +39,7 @@ inline __device__ bool hipSemaphoreEBOTryWait(const hipSemaphore_t sem,
                                threadIdx.z == 0);
   /*
     Each sem has NUM_CU * 4 locations in the buffer.  Of these locations, each
-    CU uses 4 of them (current count, head, tail, max count).  For the global 
+    CU uses 4 of them (current count, head, tail, max count).  For the global
     semaphore all CUs use semaphoreBuffers[sem * 4 * NUM_CU].
   */
   unsigned int * const currCount = semaphoreBuffers + (sem * 4 * NUM_CU);
@@ -132,7 +132,7 @@ inline __device__ bool hipSemaphoreEBOTryWait(const hipSemaphore_t sem,
         readers can also read the data (but not the writers since they needs
         the entire CS).
       */
-      --currCount[0]; //atomicSub(currCount, 1);
+      --currCount[0];
     }
 
     // atomicExch acts as a store release, need TF to enforce ordering
@@ -207,10 +207,14 @@ inline __device__ void hipSemaphoreEBOPost(const hipSemaphore_t sem,
 
   while (!acquired)
   {
-    __syncthreads();
     if (isMasterThread)
     {
-      // try to acquire sem head "lock"
+      /*
+        NOTE: This CAS will trigger an invalidation since we overload CAS's.
+        Since most of the data in the local critical section is written, it
+        hopefully won't affect performance too much.
+      */
+      // try to acquire sem head lock
       if (atomicCAS(lock, 0, 1) == 0) {
         // atomicCAS acts as a load acquire, need TF to enforce ordering
         __threadfence();
@@ -220,6 +224,7 @@ inline __device__ void hipSemaphoreEBOPost(const hipSemaphore_t sem,
     }
     __syncthreads();
   }
+  __syncthreads();
 
   if (isMasterThread) {
     /*
@@ -232,7 +237,8 @@ inline __device__ void hipSemaphoreEBOPost(const hipSemaphore_t sem,
       // start accessing the critical section.
       currCount[0] += maxSemCount;
     } else {
-      ++currCount[0]; // readers add 1 to the semaphore
+      // readers add 1 to the semaphore
+      ++currCount[0];
     }
 
     // atomicExch acts as a store release, need TF to enforce ordering
@@ -395,7 +401,6 @@ inline __device__ void hipSemaphoreEBOWaitLocal(const hipSemaphore_t sem,
     }
     __syncthreads();
   }
-  __syncthreads();
 }
 
 inline __device__ void hipSemaphoreEBOPostLocal(const hipSemaphore_t sem,
@@ -409,8 +414,8 @@ inline __device__ void hipSemaphoreEBOPostLocal(const hipSemaphore_t sem,
                                threadIdx.z == 0);
   // Each sem has NUM_CU * 4 locations in the buffer.  Of these locations, each
   // CU gets 4 of them.  So CU 0 starts at semaphoreBuffers[sem * 4 * NUM_CU].
-  unsigned int * const currCount = semaphoreBuffers + ((sem * 4 * NUM_CU) +
-                                                       (cuID * 4));
+  unsigned int * const currCount = semaphoreBuffers +
+                                       ((sem * 4 * NUM_CU) + (cuID * 4));
   unsigned int * const lock = currCount + 1;
   __shared__ bool acquired;
 
@@ -422,7 +427,12 @@ inline __device__ void hipSemaphoreEBOPostLocal(const hipSemaphore_t sem,
     __syncthreads();
     if (isMasterThread)
     {
-      // try to acquire sem head "lock"
+      /*
+        NOTE: This CAS will trigger an invalidation since we overload CAS's.
+        Since most of the data in the local critical section is written, it
+        hopefully won't affect performance too much.
+      */
+      // try to acquire sem head lock
       if (atomicCAS(lock, 0, 1) == 0) {
         // atomicCAS acts as a load acquire, need TF to enforce ordering locally
         __threadfence_block();
@@ -432,10 +442,11 @@ inline __device__ void hipSemaphoreEBOPostLocal(const hipSemaphore_t sem,
     }
     __syncthreads();
   }
+  __syncthreads();
 
   if (isMasterThread) {
     /*
-      NOTE: currCount is only accessed by 1 WGs at a time and has a lock around
+      NOTE: currCount is only accessed by 1 WG at a time and has a lock around
       it, so we can safely access it as a regular data access instead of with
       atomics.
     */
@@ -444,7 +455,8 @@ inline __device__ void hipSemaphoreEBOPostLocal(const hipSemaphore_t sem,
       // start accessing the critical section.
       currCount[0] += maxSemCount;
     } else {
-      ++currCount[0]; // readers add 1 to the semaphore
+      // readers add 1 to the semaphore
+      ++currCount[0];
     }
 
     // atomicExch acts as a store release, need TF to enforce ordering locally
@@ -489,13 +501,13 @@ inline __device__ bool hipSemaphoreEBOTryWaitPriority(const hipSemaphore_t sem,
   if (isMasterThread)
   {
     acq1 = false;
-    while(atomicCAS(priority, 0, 0) !=0){
+    while (atomicCAS(priority, 0, 0) != 0) {
       // Spinning until all blocks wanting to exit the semaphore have exited
       sleepFunc(backoff);
       // Increase backoff to avoid repeatedly hammering priority flag
       backoff = (((backoff << 1) + 1) & (MAX_BACKOFF-1));
     }
-     // try to acquire the sem head "lock"
+    // try to acquire the sem head "lock"
     if (atomicCAS(lock, 0, 1) == 0) {
       // atomicCAS acts as a load acquire, need TF to enforce ordering
       __threadfence();
@@ -569,7 +581,7 @@ inline __device__ bool hipSemaphoreEBOTryWaitPriority(const hipSemaphore_t sem,
         readers can also read the data (but not the writers since they needs
         the entire CS).
       */
-      --currCount[0]; //atomicSub(currCount, 1);
+      --currCount[0];
     }
 
     // atomicExch acts as a store release, need TF to enforce ordering
@@ -644,20 +656,24 @@ inline __device__ void hipSemaphoreEBOPostPriority(const hipSemaphore_t sem,
   { 
     acquired = false;
     /*
-    Incrementing priority count whenever a thread block wants to exit 
+    Incrementing priority count whenever a work group wants to exit 
     the Semaphore. A priority count of > 0 will stop blocks trying to enter 
     the semaphore from making an attempt to acquire the lock, reducing contention
     */
-    atomicAdd(priority, 1); 
+    atomicAdd(priority, 1);
   }
   __syncthreads();
 
   while (!acquired)
   {
-    __syncthreads();
     if (isMasterThread)
     {
-      // try to acquire sem head "lock"
+      /*
+        NOTE: This CAS will trigger an invalidation since we overload CAS's.
+        Since most of the data in the local critical section is written, it
+        hopefully won't affect performance too much.
+      */
+      // try to acquire sem head lock
       if (atomicCAS(lock, 0, 1) == 0) {
         // atomicCAS acts as a load acquire, need TF to enforce ordering
         __threadfence();
@@ -667,6 +683,7 @@ inline __device__ void hipSemaphoreEBOPostPriority(const hipSemaphore_t sem,
     }
     __syncthreads();
   }
+  __syncthreads();
 
   if (isMasterThread) {
     /*
@@ -679,14 +696,15 @@ inline __device__ void hipSemaphoreEBOPostPriority(const hipSemaphore_t sem,
       // start accessing the critical section.
       currCount[0] += maxSemCount;
     } else {
-      ++currCount[0]; // readers add 1 to the semaphore
+      // readers add 1 to the semaphore
+      ++currCount[0];
     }
 
     // atomicExch acts as a store release, need TF to enforce ordering
     __threadfence();
     // now that we've updated the semaphore count can release the lock
     atomicExch(lock, 0);
-    // Decrement priority as thread block which wanted to exit has relenquished the lock
+    // Decrement priority as work group which wanted to exit has relenquished the lock
     atomicSub(priority, 1);
   }
   __syncthreads();
@@ -867,8 +885,8 @@ inline __device__ void hipSemaphoreEBOPostLocalPriority(const hipSemaphore_t sem
                                threadIdx.z == 0);
   // Each sem has NUM_CU * 5 locations in the buffer.  Of these locations, each
   // CU gets 5 of them.  So CU 0 starts at semaphoreBuffers[sem * 5 * NUM_CU].
-  unsigned int * const currCount = semaphoreBuffers + ((sem * 5 * NUM_CU) +
-                                                       (cuID * 5));
+  unsigned int * const currCount = semaphoreBuffers +
+                                       ((sem * 5 * NUM_CU) + (cuID * 5));
   unsigned int * const lock = currCount + 1;
   unsigned int * const priority = currCount + 4;
   __shared__ bool acquired;
@@ -876,21 +894,25 @@ inline __device__ void hipSemaphoreEBOPostLocalPriority(const hipSemaphore_t sem
   if (isMasterThread) 
   { 
     acquired = false;
-     /*
-    Incrementing priority count whenever a thread block wants to exit 
-    the Semaphore. A priority count of > 0 will stop blocks trying to enter 
-    the semaphore from making an attempt to acquire the lock, reducing contention.
-    */ 
+    /*
+      Incrementing priority count whenever a work group wants to exit 
+      the Semaphore. A priority count of > 0 will stop blocks trying to enter 
+      the semaphore from making an attempt to acquire the lock, reducing contention
+    */
     atomicAdd(priority, 1); 
   }
   __syncthreads();
 
   while (!acquired)
   {
-    __syncthreads();
     if (isMasterThread)
     {
-      // try to acquire sem head "lock"
+      /*
+        NOTE: This CAS will trigger an invalidation since we overload CAS's.
+        Since most of the data in the local critical section is written, it
+        hopefully won't affect performance too much.
+      */
+      // try to acquire sem head lock
       if (atomicCAS(lock, 0, 1) == 0) {
         // atomicCAS acts as a load acquire, need TF to enforce ordering locally
         __threadfence_block();
@@ -900,6 +922,7 @@ inline __device__ void hipSemaphoreEBOPostLocalPriority(const hipSemaphore_t sem
     }
     __syncthreads();
   }
+  __syncthreads();
 
   if (isMasterThread) {
     /*
@@ -912,14 +935,15 @@ inline __device__ void hipSemaphoreEBOPostLocalPriority(const hipSemaphore_t sem
       // start accessing the critical section.
       currCount[0] += maxSemCount;
     } else {
-      ++currCount[0]; // readers add 1 to the semaphore
+      // readers add 1 to the semaphore
+      ++currCount[0];
     }
 
     // atomicExch acts as a store release, need TF to enforce ordering locally
     __threadfence_block();
     // now that we've updated the semaphore count can release the lock
     atomicExch(lock, 0);
-    // Decrement priority as thread block which wanted to exit has relenquished the lock
+    // Decrement priority as work group which wanted to exit has relenquished the lock
     atomicSub(priority, 1);
   }
   __syncthreads();

@@ -127,9 +127,11 @@ inline __device__ bool hipSemaphoreSpinTryWait(const hipSemaphore_t sem,
       // writers also need to unset the "writer is waiting" flag
       writerWaiting[0] = 0;
     } else {
-      // readers decrement the current count of the semaphore by 1 so other
-      // readers can also read the data (but not the writers since they needs
-      // the entire CS).
+      /*
+        readers decrement the current count of the semaphore by 1 so other
+        readers can also read the data (but not the writers since they needs
+        the entire CS).
+      */
       --currCount[0];
     }
 
@@ -306,7 +308,7 @@ inline __device__ bool hipSemaphoreSpinTryWaitLocal(const hipSemaphore_t sem,
       NOTE: currCount is only accessed by 1 WG at a time and has a lock around
       it, so we can safely access it as a regular data access instead of with
       atomics.
-     */
+    */
     if (isWriter) {
       /*
         writer decrements the current count of the semaphore by the max to
@@ -520,9 +522,11 @@ inline __device__ bool hipSemaphoreSpinTryWaitPriority(const hipSemaphore_t sem,
       // writers also need to unset the "writer is waiting" flag
       writerWaiting[0] = 0;
     } else {
-      // readers decrement the current count of the semaphore by 1 so other
-      // readers can also read the data (but not the writers since they needs
-      // the entire CS).
+      /*
+        readers decrement the current count of the semaphore by 1 so other
+        readers can also read the data (but not the writers since they needs
+        the entire CS).
+      */
       --currCount[0];
     }
 
@@ -624,7 +628,7 @@ inline __device__ void hipSemaphoreSpinPostPriority(const hipSemaphore_t sem,
   __syncthreads();
 }
 
-// same wait algorithm but with local scope and per-SM synchronization
+// same wait algorithm but with local scope and per-CU synchronization
 inline __device__ bool hipSemaphoreSpinTryWaitLocalPriority (const hipSemaphore_t sem,
                                                               const unsigned int cuID,
                                                               const bool isWriter,
@@ -722,7 +726,7 @@ inline __device__ bool hipSemaphoreSpinTryWaitLocalPriority (const hipSemaphore_
       NOTE: currCount is only accessed by 1 WG at a time and has a lock around
       it, so we can safely access it as a regular data access instead of with
       atomics.
-     */
+    */
     if (isWriter) {
       /*
         writer decrements the current count of the semaphore by the max to
@@ -783,11 +787,11 @@ inline __device__ void hipSemaphoreSpinPostLocalPriority(const hipSemaphore_t se
 
   if (isMasterThread) 
   { 
-    acquired = false; 
+    acquired = false;
     /*
-    Incrementing priority count whenever a work group wants to exit 
-    the Semaphore. A priority count of > 0 will stop blocks trying to enter 
-    the semaphore from making an attempt to acquire the lock, reducing contention
+      Incrementing priority count whenever a work group wants to exit 
+      the Semaphore. A priority count of > 0 will stop blocks trying to enter 
+      the semaphore from making an attempt to acquire the lock, reducing contention
     */
     atomicAdd(priority, 1); 
   }
