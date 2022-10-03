@@ -2282,7 +2282,7 @@ int main(int argc, char ** argv)
       hipSemaphoreCreateEBO  (&eboSem10,       6,   10, NUM_CU);
       break;
     case 15:
-      printf("prior_ebo_sem_%03d_%03d\n", 120, NUM_ITERS); fflush(stdout);
+      printf("ebo_sem_%03d_%03d\n", 120, NUM_ITERS); fflush(stdout);
       hipSemaphoreCreateEBO  (&eboSem120,       7,   120, NUM_CU);
       break;
     case 16:
