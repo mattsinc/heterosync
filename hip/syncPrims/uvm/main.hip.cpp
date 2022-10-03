@@ -34,7 +34,7 @@ void accessData_golden(float * storageGolden, int currLoc, int numStorageLocs)
 {
   /*
     If this location isn't the first location accessed by a
-    thread, update it -- each half-warp accesses (NUM_LDST + 1) cache
+    thread, update it -- each quarter-wave accesses (NUM_LDST + 1) cache
     lines.
   */
   if (currLoc % (NUM_WIS_PER_QUARTERWAVE * (NUM_LDST + 1)) >=
@@ -123,7 +123,7 @@ __global__ void kernelAtomicTreeBarrierUniq(float * storage,
   int currWGID = hipBlockIdx_x;
   int tid = ((currWGID * hipBlockDim_x) + hipThreadIdx_x);
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
   // determine if I'm WG 0 on my CU
@@ -144,6 +144,168 @@ __global__ void kernelAtomicTreeBarrierUniq(float * storage,
     // CUs data
     currWGID = ((currWGID + 1) % hipGridDim_x);
     tid = ((currWGID * hipBlockDim_x) + hipThreadIdx_x);
+    threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  }
+}
+
+// performs a tree barrier.  Each WG on an CU accesses unique data then joins a
+// local barrier.  1 of the WGs from each CU then joins the global barrier
+__global__ void kernelAtomicTreeBarrierUniq(float * storage,
+                                            hipLockData_t * gpuLockData,
+                                            unsigned int * perCUBarrierBuffers,
+                                            const unsigned int numBlocksAtBarr,
+                                            const int numWGs_perCU,
+                                            const int ITERATIONS,
+                                            const int NUM_LDST,
+                                            const int NUM_CU,
+                                            const int MAX_WGS)
+{
+  // local variables
+  // thread 0 is master thread
+  const bool isMasterThread = ((threadIdx.x == 0) && (threadIdx.y == 0) &&
+                               (threadIdx.z == 0));
+  const int cuID = (blockIdx.x % numBlocksAtBarr); // mod by # CUs to get CU ID
+  // all work groups on the same CU access unique locations because the
+  // barrier can't ensure DRF between WGs
+  int currBlockID = blockIdx.x;
+  int tid = ((currBlockID * blockDim.x) + threadIdx.x);
+  // want striding to happen across cache lines so that each thread in a
+  // quarter-wave accesses sequential words
+  int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
+  // determine if I'm WG 0 on my CU
+  const int perCU_blockID = (blockIdx.x / numBlocksAtBarr);
+
+  for (int i = 0; i < ITERATIONS; ++i)
+  {
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
+    joinBarrier_helper(gpuLockData->barrierBuffers, perCUBarrierBuffers,
+                       numBlocksAtBarr, cuID, perCU_blockID, numWGs_perCU,
+                       isMasterThread, MAX_WGS);
+    // get new thread ID by trading amongst WGs -- + 1 block ID to shift to next
+    // CUs data
+    currBlockID = ((currBlockID + 1) % gridDim.x);
+    tid = ((currBlockID * blockDim.x) + threadIdx.x);
+    threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  }
+}
+
+// the global sense-reversing barrier
+__global__ void kernelAtomicTreeBarrierUniqSRB(float * storage,
+                                               hipLockData_t * gpuLockData,
+                                               unsigned int * perCUBarrierBuffers,
+                                               const unsigned int numBlocksAtBarr,
+                                               const int numWGs_perCU,
+                                               const int ITERATIONS,
+                                               const int NUM_LDST,
+                                               const int NUM_CU,
+                                               const int MAX_WGS)
+{
+  // local variables
+  // thread 0 is master thread
+  const bool isMasterThread = ((threadIdx.x == 0) && (threadIdx.y == 0) &&
+                               (threadIdx.z == 0));
+  const int cuID = (blockIdx.x % numBlocksAtBarr); // mod by # CUs to get CU ID
+  // all WGs on the same CU access unique locations because the
+  // barrier can't ensure DRF between WGs
+  int currBlockID = blockIdx.x;
+  int tid = ((currBlockID * blockDim.x) + threadIdx.x);
+  // want striding to happen across cache lines so that each thread in a
+  // quarter-wave accesses sequential words
+  int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
+  // determine if I'm WG 0 on my CU
+  const int perCU_blockID = (blockIdx.x / numBlocksAtBarr);
+
+  for (int i = 0; i < ITERATIONS; ++i)
+  {
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
+    joinBarrier_helperSRB(gpuLockData->barrierBuffers, perCUBarrierBuffers,
+                          numBlocksAtBarr, cuID, perCU_blockID, numWGs_perCU,
+                          isMasterThread, MAX_WGS);
+
+    // get new thread ID by trading amongst WGs -- + 1 block ID to shift to next
+    // CUs data
+    currBlockID = ((currBlockID + 1) % gridDim.x);
+    tid = ((currBlockID * blockDim.x) + threadIdx.x);
+    threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  }
+}
+
+// the naive global sense-reversing barrier (all threads join)
+__global__ void kernelAtomicTreeBarrierUniqNaiveAllSRB(float * storage,
+                                                       hipLockData_t * gpuLockData,
+                                                       unsigned int * perCUBarrierBuffers,
+                                                       const unsigned int numThreadsAtBarr,
+                                                       const int denom,
+                                                       const int ITERATIONS,
+                                                       const int NUM_LDST,
+                                                       const int NUM_CU,
+                                                       const int MAX_WGS)
+{
+  // local variables
+  // all work groups on the same CU access unique locations because the
+  // barrier can't ensure DRF between WGs
+  int currBlockID = blockIdx.x;
+  int tid = ((currBlockID * blockDim.x) + threadIdx.x);
+  // want striding to happen across cache lines so that each thread in a
+  // quarter-wave accesses sequential words
+  int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
+  const int cuID = (blockIdx.x % denom); // mod by # CUs to get CU ID
+
+  for (int i = 0; i < ITERATIONS; ++i)
+  {
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
+    joinBarrier_helperNaiveAllSRB(gpuLockData->barrierBuffers, perCUBarrierBuffers,
+                                  numThreadsAtBarr, cuID, MAX_WGS);
+
+    // get new thread ID by trading amongst WGs -- + 1 block ID to shift to next
+    // CUs data
+    currBlockID = ((currBlockID + 1) % gridDim.x);
+    tid = ((currBlockID * blockDim.x) + threadIdx.x);
+    threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  }
+}
+
+// the naive global sense-reversing barrier
+__global__ void kernelAtomicTreeBarrierUniqNaiveSRB(float * storage,
+                                                    hipLockData_t * gpuLockData,
+                                                    const unsigned int numBlocksAtBarr,
+                                                    const int denom,
+                                                    const int ITERATIONS,
+                                                    const int NUM_LDST,
+                                                    const int NUM_CU,
+                                                    const int MAX_WGS)
+{
+  // local variables
+  // thread 0 is master thread
+  const bool isMasterThread = ((threadIdx.x == 0) && (threadIdx.y == 0) &&
+                               (threadIdx.z == 0));
+  // all work groups on the same CU access unique locations because the
+  // barrier can't ensure DRF between WGs
+  int currBlockID = blockIdx.x;
+  int tid = ((currBlockID * blockDim.x) + threadIdx.x);
+  // want striding to happen across cache lines so that each thread in a
+  // quarter-wave accesses sequential words
+  int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
+  const int cuID = (blockIdx.x % denom); // mod by # CUs to get CU ID
+
+  for (int i = 0; i < ITERATIONS; ++i)
+  {
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
+    joinBarrier_helperNaiveSRB(gpuLockData->barrierBuffers, 
+                               numBlocksAtBarr, cuID, isMasterThread, MAX_WGS);
+
+    // get new thread ID by trading amongst WGs -- + 1 block ID to shift to next
+    // CUs data
+    currBlockID = ((currBlockID + 1) % gridDim.x);
+    tid = ((currBlockID * blockDim.x) + threadIdx.x);
     threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   }
 }
@@ -172,7 +334,7 @@ __global__ void kernelAtomicTreeBarrierUniqLocalExch(float * storage,
   int currWGID = hipBlockIdx_x;
   int tid = ((currWGID * hipBlockDim_x) + hipThreadIdx_x);
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
   // determine if I'm WG 0 on my CU
@@ -210,6 +372,172 @@ __global__ void kernelAtomicTreeBarrierUniqLocalExch(float * storage,
   }
 }
 
+// like the tree sense-reversing barrier but also has WGs exchange work locally
+// before joining
+__global__ void kernelAtomicTreeBarrierUniqLocalExchSRB(float * storage,
+                                                        hipLockData_t * gpuLockData,
+                                                        unsigned int * perCUBarrierBuffers,
+                                                        const unsigned int numBlocksAtBarr,
+                                                        const int numWGs_perCU,
+                                                        const int ITERATIONS,
+                                                        const int NUM_LDST,
+                                                        const int NUM_CU,
+                                                        const int MAX_WGS)
+{
+  // local variables
+  // thread 0 is master thread
+  const bool isMasterThread = ((threadIdx.x == 0) && (threadIdx.y == 0) &&
+                               (threadIdx.z == 0));
+  const int cuID = (blockIdx.x % numBlocksAtBarr); // mod by # CUs to get CU ID
+  // all work groups on the same CU access unique locations because the
+  // barrier can't ensure DRF between WGs
+  int currBlockID = blockIdx.x;
+  int tid = ((currBlockID * blockDim.x) + threadIdx.x);
+  // want striding to happen across cache lines so that each thread in a
+  // quarter-wave accesses sequential words
+  int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
+  // determine if I'm WG 0 on my CU
+  const int perCU_blockID = (blockIdx.x / numBlocksAtBarr);
+
+  for (int i = 0; i < ITERATIONS; ++i)
+  {
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
+    // all WGs on this CU do a local barrier (if > 1 WG)
+    if (numWGs_perCU > 1) {
+      hipBarrierAtomicLocalSRB(perCUBarrierBuffers, cuID, numWGs_perCU,
+                                isMasterThread, MAX_WGS);
+
+      // exchange data within the WGs on this CU, then do some more computations
+      currBlockID = ((currBlockID + numBlocksAtBarr) % gridDim.x);
+      tid = ((currBlockID * blockDim.x) + threadIdx.x);
+      threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+
+      accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+    }
+
+    joinBarrier_helperSRB(gpuLockData->barrierBuffers, perCUBarrierBuffers,
+                          numBlocksAtBarr, cuID, perCU_blockID,
+                          numWGs_perCU, isMasterThread, MAX_WGS);
+
+    // get new thread ID by trading amongst WGs -- + 1 block ID to shift to next
+    // CUs data
+    currBlockID = ((currBlockID + 1) % gridDim.x);
+    tid = ((currBlockID * blockDim.x) + threadIdx.x);
+    threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  }
+}
+
+// like the naive tree sense-reversing barrier but also has WGs exchange work locally
+// before joining
+__global__ void kernelAtomicTreeBarrierUniqLocalExchNaiveSRB(float * storage,
+                                                             hipLockData_t * gpuLockData,
+                                                             unsigned int * perCUBarrierBuffers,
+                                                             const unsigned int numBlocksAtBarr,
+                                                             const int denom,
+                                                             const int numWGs_perCU,
+                                                             const int ITERATIONS,
+                                                             const int NUM_LDST,
+                                                             const int NUM_CU,
+                                                             const int MAX_WGS)
+{
+  // local variables
+  // thread 0 is master thread
+  const bool isMasterThread = ((threadIdx.x == 0) && (threadIdx.y == 0) &&
+                               (threadIdx.z == 0));
+  // all work groups on the same CU access unique locations because the
+  // barrier can't ensure DRF between WGs
+  int currBlockID = blockIdx.x;
+  int tid = ((currBlockID * blockDim.x) + threadIdx.x);
+  // want striding to happen across cache lines so that each thread in a
+  // quarter-wave accesses sequential words
+  int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
+  const int cuID = (blockIdx.x % denom); // mod by # CUs to get CU ID
+
+  for (int i = 0; i < ITERATIONS; ++i)
+  {
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
+    // all WGs on this CU do a local barrier (if > 1 WG)
+    if (numWGs_perCU > 1) {
+      // no local barrier in naive SRB, so have to join global SRB here
+      joinBarrier_helperNaiveSRB(gpuLockData->barrierBuffers,
+                                 numBlocksAtBarr, cuID, isMasterThread, MAX_WGS);
+
+      // exchange data within the WGs on this CU, then do some more computations
+      currBlockID = ((currBlockID + numBlocksAtBarr) % gridDim.x);
+      tid = ((currBlockID * blockDim.x) + threadIdx.x);
+      threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+
+      accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+    }
+
+    joinBarrier_helperNaiveSRB(gpuLockData->barrierBuffers,
+                               numBlocksAtBarr, cuID, isMasterThread, MAX_WGS);
+
+    // get new thread ID by trading amongst WGs -- + 1 block ID to shift to next
+    // CUs data
+    currBlockID = ((currBlockID + 1) % gridDim.x);
+    tid = ((currBlockID * blockDim.x) + threadIdx.x);
+    threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  }
+}
+
+// like the naive all tree sense-reversing barrier but also has WGs exchange work locally
+// before joining
+__global__ void kernelAtomicTreeBarrierUniqLocalExchNaiveAllSRB(float * storage,
+                                                                hipLockData_t * gpuLockData,
+                                                                unsigned int * perCUBarrierBuffers,
+                                                                const unsigned int numThreadsAtBarr,
+                                                                const int denom,
+                                                                const int numWGs_perCU,
+                                                                const int ITERATIONS,
+                                                                const int NUM_LDST,
+                                                                const int NUM_CU,
+                                                                const int MAX_WGS)
+{
+  // local variables
+  // all work groups on the same CU access unique locations because the
+  // barrier can't ensure DRF between WGs
+  int currBlockID = blockIdx.x;
+  int tid = ((currBlockID * blockDim.x) + threadIdx.x);
+  // want striding to happen across cache lines so that each thread in a
+  // quarter-wave accesses sequential words
+  int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
+  const int cuID = (blockIdx.x % denom); // mod by # CUs to get CU ID
+
+  for (int i = 0; i < ITERATIONS; ++i)
+  {
+    accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
+    // all WGs on this CU do a local barrier (if > 1 WG)
+    if (numWGs_perCU > 1) {
+      // no local barrier in naive SRB, so have to join global SRB here
+      joinBarrier_helperNaiveAllSRB(gpuLockData->barrierBuffers, perCUBarrierBuffers,
+                                    numThreadsAtBarr, cuID, MAX_WGS);
+
+      // exchange data within the WGs on this CU, then do some more computations
+      currBlockID = ((currBlockID + denom) % gridDim.x);
+      tid = ((currBlockID * blockDim.x) + threadIdx.x);
+      threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+
+      accessData(storage, threadBaseLoc, threadOffset, NUM_LDST);
+    }
+
+    joinBarrier_helperNaiveAllSRB(gpuLockData->barrierBuffers, perCUBarrierBuffers,
+                                  numThreadsAtBarr, cuID, MAX_WGS);
+
+    // get new thread ID by trading amongst WGs -- + 1 block ID to shift to next
+    // CUs data
+    currBlockID = ((currBlockID + 1) % gridDim.x);
+    tid = ((currBlockID * blockDim.x) + threadIdx.x);
+    threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  }
+}
+
 // performs a tree barrier like above but with a lock-free barrier
 __global__ void kernelFBSTreeBarrierUniq(float * storage,
                                          hipLockData_t * gpuLockData,
@@ -230,7 +558,7 @@ __global__ void kernelFBSTreeBarrierUniq(float * storage,
   int currWGID = hipBlockIdx_x;
   int tid = ((currWGID * hipBlockDim_x) + hipThreadIdx_x);
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
   // determine if I'm WG 0 on my CU
@@ -275,7 +603,7 @@ __global__ void kernelFBSTreeBarrierUniqLocalExch(float * storage,
   int currWGID = hipBlockIdx_x;
   int tid = ((currWGID * hipBlockDim_x) + hipThreadIdx_x);
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
   // determine if I'm WG 0 on my CU
@@ -324,7 +652,7 @@ __global__ void kernelSleepingMutex(hipMutex_t mutex, float * storage,
   // ownership in time)
   const int tid = hipThreadIdx_x;
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   const int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
   __shared__ int myRingBufferLoc; // tracks my WGs location in the ring buffer
@@ -357,7 +685,7 @@ __global__ void kernelSleepingMutexUniq(hipMutex_t mutex, float * storage,
   // all work groups on the same CU access the same locations
   const int tid = ((cuID * hipBlockDim_x) + hipThreadIdx_x);
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   const int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
   __shared__ int myRingBufferLoc; // tracks my WGs location in the ring buffer
@@ -391,7 +719,7 @@ __global__ void kernelFetchAndAddMutex(hipMutex_t mutex, float * storage,
   // ownership in time)
   const int tid = hipThreadIdx_x;
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   const int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
 
@@ -417,7 +745,7 @@ __global__ void kernelFetchAndAddMutexUniq(hipMutex_t mutex, float * storage,
   // all work groups on the same CU access the same locations
   const int tid = ((cuID * hipBlockDim_x) + hipThreadIdx_x);
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   const int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
 
@@ -442,7 +770,7 @@ __global__ void kernelSpinLockMutex(hipMutex_t mutex, float * storage,
   // ownership in time)
   const int tid = hipThreadIdx_x;
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   const int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
 
@@ -466,7 +794,7 @@ __global__ void kernelSpinLockMutexUniq(hipMutex_t mutex, float * storage,
   // all work groups on the same CU access the same locations
   const int tid = ((cuID * hipBlockDim_x) + hipThreadIdx_x);
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   const int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
 
@@ -490,7 +818,7 @@ __global__ void kernelEBOMutex(hipMutex_t mutex, float * storage,
   // ownership in time)
   const int tid = hipThreadIdx_x;
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   const int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
 
@@ -514,7 +842,7 @@ __global__ void kernelEBOMutexUniq(hipMutex_t mutex, float * storage,
   // all work groups on the same CU access the same locations
   const int tid = ((cuID * hipBlockDim_x) + hipThreadIdx_x);
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   const int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
 
@@ -561,7 +889,7 @@ __global__ void kernelSpinLockSemaphore(hipSemaphore_t sem,
   // locations are accessed by the reader WGs on all CUs
   int tid = ((perCU_WGID * hipBlockDim_x) + hipThreadIdx_x);
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
 
@@ -607,6 +935,85 @@ __global__ void kernelSpinLockSemaphore(hipSemaphore_t sem,
   }
 }
 
+// All WGs on all CUs access the same data with 1 writer per CU (and N-1)
+// readers per CU.
+__global__ void kernelSpinLockSemaphorePriority(hipSemaphore_t sem,
+                                                float * storage,
+                                                hipLockData_t * gpuLockData,
+                                                const unsigned int numStorageLocs,
+                                                const int ITERATIONS,
+                                                const int NUM_LDST,
+                                                const int NUM_CU)
+{
+  // local variables
+  const unsigned int maxSemCount =
+    gpuLockData->semaphoreBuffers[((sem * 5 * NUM_CU) + 3)];
+  const int cuID = (blockIdx.x % NUM_CU); // mod by # CUs to get CU ID
+  // If there are fewer WGs than # CUs, need to take into account for various
+  // math below.  If WGs >= NUM_CU, use NUM_CU.
+  const unsigned int numCU = ((gridDim.x < NUM_CU) ? gridDim.x : NUM_CU);
+  // given the gridDim.x, we can figure out how many WGs are on our CU -- assume
+  // all CUs have an identical number of WGs
+  int numWGs_perCU = (int)ceil((float)gridDim.x / numCU);
+  // number of threads on each WG
+  //const int numThrs_perCU = (blockDim.x * numWGs_perCU);
+  const int perCU_blockID = (blockIdx.x / numCU);
+  // rotate which WG is the writer
+  const bool isWriter = (perCU_blockID == (cuID % numWGs_perCU));
+
+  // all work groups on the same CU access unique locations except the writer,
+  // which writes all of the locations that all of the WGs access
+  //int currBlockID = blockIdx.x;
+  // the (reader) WGs on each CU access unique locations but those same
+  // locations are accessed by the reader WGs on all CUs
+  int tid = ((perCU_blockID * blockDim.x) + threadIdx.x);
+  // want striding to happen across cache lines so that each thread in a
+  // quarter-wave accesses sequential words
+  int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
+
+  // dummy array to hold the loads done in the readers
+  __shared__ volatile float dummyArray[NUM_WIS_PER_WG];
+
+  for (int i = 0; i < ITERATIONS; ++i)
+  {
+    /*
+      NOTE: There is a race here for entering the critical section.  Most
+      importantly, it means that the at least one of the readers could win and
+      thus the readers will read before the writer has had a chance to write
+      the data.
+    */
+    hipSemaphoreSpinWaitPriority(sem, isWriter, maxSemCount,
+                          gpuLockData->semaphoreBuffers, NUM_CU);
+
+    // writer writes all the data that the WGs on this CU access
+    if (isWriter) {
+      for (int j = 0; j < numWGs_perCU; ++j) {
+        /*
+          Update the writer's "location" so it writes to the locations that the
+          readers will access (due to RR scheduling the next WG on this CU is
+          numCU WGs away).  Use loop counter because the non-unique version
+          writes the same locations on all CUs.
+        */
+        tid = ((j * blockDim.x) + threadIdx.x);
+        threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+
+        accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
+      }
+      // reset locations
+      tid = ((perCU_blockID * blockDim.x) + threadIdx.x);
+      threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+    }
+    // rest of WGs on this CU read the data written by each CU's writer WG
+    else {
+      accessData_semRd(storage, dummyArray, threadBaseLoc, threadOffset,
+                       NUM_LDST);
+    }
+    hipSemaphoreSpinPostPriority(sem, isWriter, maxSemCount,
+                          gpuLockData->semaphoreBuffers, NUM_CU);
+  }
+}
+
 __global__ void kernelSpinLockSemaphoreUniq(hipSemaphore_t sem,
                                             float * storage,
                                             hipLockData_t * gpuLockData,
@@ -633,7 +1040,7 @@ __global__ void kernelSpinLockSemaphoreUniq(hipSemaphore_t sem,
   int currWGID = hipBlockIdx_x;
   int tid = ((currWGID * hipBlockDim_x) + hipThreadIdx_x);
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
   // dummy array to hold the loads done in the readers
@@ -683,6 +1090,82 @@ __global__ void kernelSpinLockSemaphoreUniq(hipSemaphore_t sem,
   }
 }
 
+__global__ void kernelSpinLockSemaphoreUniqPriority(hipSemaphore_t sem,
+                                                    float * storage,
+                                                    hipLockData_t * gpuLockData,
+                                                    const int ITERATIONS,
+                                                    const int NUM_LDST,
+                                                    const int NUM_CU)
+{
+  // local variables
+  const unsigned int maxSemCount =
+      gpuLockData->semaphoreBuffers[((sem * 5 * NUM_CU) + 3)];
+  // If there are fewer WGs than # CUs, need to take into account for various
+  // math below.  If WGs >= NUM_CU, use NUM_CU.
+  const unsigned int numCU = ((gridDim.x < NUM_CU) ? gridDim.x : NUM_CU);
+  const int cuID = (blockIdx.x % numCU); // mod by # CUs to get CU ID
+  // given the gridDim.x, we can figure out how many WGs are on our CU -- assume
+  // all CUs have an identical number of WGs
+  int numWGs_perCU = (int)ceil((float)gridDim.x / numCU);
+  const int perCU_blockID = (blockIdx.x / numCU);
+  // rotate which WG is the writer
+  const bool isWriter = (perCU_blockID == (cuID % numWGs_perCU));
+
+  // all work groups on the same CU access unique locations except the writer,
+  // which writes all of the locations that all of the WGs access
+  int currBlockID = blockIdx.x;
+  int tid = ((currBlockID * blockDim.x) + threadIdx.x);
+  // want striding to happen across cache lines so that each thread in a
+  // quarter-wave accesses sequential words
+  int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
+  // dummy array to hold the loads done in the readers
+  __shared__ volatile float dummyArray[NUM_WIS_PER_WG];
+
+  for (int i = 0; i < ITERATIONS; ++i)
+  {
+    /*
+      NOTE: There is a race here for entering the critical section.  Most
+      importantly, it means that the at least one of the readers could win and
+      thus the readers will read before the writer has had a chance to write
+      the data.
+    */
+    hipSemaphoreSpinWaitLocalPriority(sem, cuID, isWriter, maxSemCount,
+                               gpuLockData->semaphoreBuffers, NUM_CU);
+
+    // writer WG writes all the data that the WGs on this CU access
+    if (isWriter) {
+      for (int j = 0; j < numWGs_perCU; ++j) {
+        accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
+        /*
+          update the writer's "location" so it writes to the locations that the
+          readers will access (due to RR scheduling the next WG on this CU is
+          numCU WGs away and < gridDim.x).
+
+          NOTE: First location writer writes to is its own location(s).  If the
+          writer is not CU 0 on this CU, it may require wrapping around to CUs
+          with smaller WG IDs.
+        */
+        currBlockID = (currBlockID + numCU) % gridDim.x;
+        tid = ((currBlockID * blockDim.x) + threadIdx.x);
+        threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+      }
+      // reset locations
+      currBlockID = blockIdx.x;
+      tid = ((currBlockID * blockDim.x) + threadIdx.x);
+      threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+    }
+    // rest of WGs on this CU read the data written by each CU's writer WG
+    else {
+      accessData_semRd(storage, dummyArray, threadBaseLoc, threadOffset,
+                       NUM_LDST);
+    }
+    hipSemaphoreSpinPostLocalPriority(sem, cuID, isWriter, maxSemCount,
+                               gpuLockData->semaphoreBuffers, NUM_CU);
+  }
+}
+
 // All WGs on all CUs access the same data with 1 writer per CU (and N-1)
 // readers per CU.
 __global__ void kernelEBOSemaphore(hipSemaphore_t sem, float * storage,
@@ -714,7 +1197,7 @@ __global__ void kernelEBOSemaphore(hipSemaphore_t sem, float * storage,
   // locations are accessed by the reader WGs on all CUs
   int tid = ((perCU_WGID * hipBlockDim_x) + hipThreadIdx_x);
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
 
@@ -760,6 +1243,81 @@ __global__ void kernelEBOSemaphore(hipSemaphore_t sem, float * storage,
   }
 }
 
+__global__ void kernelEBOSemaphorePriority(hipSemaphore_t sem, float * storage,
+                                           hipLockData_t * gpuLockData,
+                                           const unsigned int numStorageLocs,
+                                           const int ITERATIONS, const int NUM_LDST,
+                                           const int NUM_CU)
+{
+  // local variables
+  const unsigned int maxSemCount =
+      gpuLockData->semaphoreBuffers[((sem * 5 * NUM_CU) + 3)];
+  // If there are fewer WGs than # CUs, need to take into account for various
+  // math below.  If WGs >= NUM_CU, use NUM_CU.
+  const unsigned int numCU = ((gridDim.x < NUM_CU) ? gridDim.x : NUM_CU);
+  const int cuID = (blockIdx.x % NUM_CU); // mod by # CUs to get CU ID
+  // given the gridDim.x, we can figure out how many WGs are on our CU -- assume
+  // all CUs have an identical number of WGs
+  int numWGs_perCU = (int)ceil((float)gridDim.x / numCU);
+  // number of threads on each WG
+  //const int numThrs_perCU = (blockDim.x * numWGs_perCU);
+  const int perCU_blockID = (blockIdx.x / numCU);
+  // rotate which WG is the writer
+  const bool isWriter = (perCU_blockID == (cuID % numWGs_perCU));
+
+  // all work groups on the same CU access unique locations except the writer,
+  // which writes all of the locations that all of the WGs access
+  //int currBlockID = blockIdx.x;
+  // the (reader) WGs on each CU access unique locations but those same
+  // locations are accessed by the reader WGs on all CUs
+  int tid = ((perCU_blockID * blockDim.x) + threadIdx.x);
+  // want striding to happen across cache lines so that each thread in a
+  // quarter-wave accesses sequential words
+  int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
+
+  // dummy array to hold the loads done in the readers
+  __shared__ volatile float dummyArray[NUM_WIS_PER_WG];
+
+  for (int i = 0; i < ITERATIONS; ++i)
+  {
+    /*
+      NOTE: There is a race here for entering the critical section.  Most
+      importantly, it means that the at least one of the readers could win and
+      thus the readers will read before the writer has had a chance to write
+      the data.
+    */
+   hipSemaphoreEBOWaitPriority(sem, isWriter, maxSemCount,
+                        gpuLockData->semaphoreBuffers, NUM_CU);
+
+    // writer WG writes all the data that the WGs on this CU access
+    if (isWriter) {
+      for (int j = 0; j < numWGs_perCU; ++j) {
+        /*
+          Update the writer's "location" so it writes to the locations that the
+          readers will access (due to RR scheduling the next WG on this CU is
+          numCU WGs away).  Use loop counter because the non-unique version
+          writes the same locations on all CUs.
+        */
+        tid = ((j * blockDim.x) + threadIdx.x);
+        threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+
+        accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
+      }
+      // reset locations
+      tid = ((perCU_blockID * blockDim.x) + threadIdx.x);
+      threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+    }
+    // rest of WGs on this CU read the data written by each CU's writer WG
+    else {
+      accessData_semRd(storage, dummyArray, threadBaseLoc, threadOffset,
+                       NUM_LDST);
+    }
+    hipSemaphoreEBOPostPriority(sem, isWriter, maxSemCount,
+                         gpuLockData->semaphoreBuffers, NUM_CU);
+  }
+}
+
 __global__ void kernelEBOSemaphoreUniq(hipSemaphore_t sem, float * storage,
                                        hipLockData_t * gpuLockData,
                                        const int ITERATIONS,
@@ -785,7 +1343,7 @@ __global__ void kernelEBOSemaphoreUniq(hipSemaphore_t sem, float * storage,
   int currWGID = hipBlockIdx_x;
   int tid = ((currWGID * hipBlockDim_x) + hipThreadIdx_x);
   // want striding to happen across cache lines so that each thread in a
-  // half-warp accesses sequential words
+  // quarter-wave accesses sequential words
   int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
   const int threadOffset = (hipThreadIdx_x % NUM_WORDS_PER_CACHELINE);
   // dummy array to hold the loads done in the readers
@@ -835,6 +1393,81 @@ __global__ void kernelEBOSemaphoreUniq(hipSemaphore_t sem, float * storage,
   }
 }
 
+__global__ void kernelEBOSemaphoreUniqPriority(hipSemaphore_t sem, float * storage,
+                                               hipLockData_t * gpuLockData,
+                                               const int ITERATIONS,
+                                               const int NUM_LDST,
+                                               const int NUM_CU)
+{
+  // local variables
+  const unsigned int maxSemCount =
+      gpuLockData->semaphoreBuffers[((sem * 5 * NUM_CU) + 3)];
+  // If there are fewer WGs than # CUs, need to take into account for various
+  // math below.  If WGs >= NUM_CU, use NUM_CU.
+  const unsigned int numCU = ((gridDim.x < NUM_CU) ? gridDim.x : NUM_CU);
+  const int cuID = (blockIdx.x % numCU); // mod by # CUs to get CU ID
+  // given the gridDim.x, we can figure out how many WGs are on our CU -- assume
+  // all CUs have an identical number of WGs
+  int numWGs_perCU = (int)ceil((float)gridDim.x / numCU);
+  const int perCU_blockID = (blockIdx.x / numCU);
+  // rotate which WG is the writer
+  const bool isWriter = (perCU_blockID == (cuID % numWGs_perCU));
+
+  // all work groups on the same CU access unique locations except the writer,
+  // which writes all of the locations that all of the WGs access
+  int currBlockID = blockIdx.x;
+  int tid = ((currBlockID * blockDim.x) + threadIdx.x);
+  // want striding to happen across cache lines so that each thread in a
+  // quarter-wave accesses sequential words
+  int threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+  const int threadOffset = (threadIdx.x % NUM_WORDS_PER_CACHELINE);
+  // dummy array to hold the loads done in the readers
+  __shared__ volatile float dummyArray[NUM_WIS_PER_WG];
+
+  for (int i = 0; i < ITERATIONS; ++i)
+  {
+    /*
+      NOTE: There is a race here for entering the critical section.  Most
+      importantly, it means that the at least one of the readers could win and
+      thus the readers will read before the writer has had a chance to write
+      the data.
+    */
+    hipSemaphoreEBOWaitLocalPriority(sem, cuID, isWriter, maxSemCount,
+                              gpuLockData->semaphoreBuffers, NUM_CU);
+
+    // writer WG writes all the data that the WGs on this CU access
+    if (isWriter) {
+      for (int j = 0; j < numWGs_perCU; ++j) {
+        accessData_semWr(storage, threadBaseLoc, threadOffset, NUM_LDST);
+
+        /*
+          update the writer's "location" so it writes to the locations that the
+          readers will access (due to RR scheduling the next WG on this CU is
+          numCU WGs away and < gridDim.x).
+
+          NOTE: First location writer writes to is its own location(s).  If the
+          writer is not CU 0 on this CU, it may require wrapping around to CUs
+          with smaller WG IDs.
+        */
+        currBlockID = (currBlockID + numCU) % gridDim.x;
+        tid = ((currBlockID * blockDim.x) + threadIdx.x);
+        threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+      }
+      // reset locations
+      currBlockID = blockIdx.x;
+      tid = ((currBlockID * blockDim.x) + threadIdx.x);
+      threadBaseLoc = ((tid/NUM_WORDS_PER_CACHELINE) * (NUM_LDST+1));
+    }
+    // rest of WGs on this CU read the data written by each CU's writer WG
+    else {
+      accessData_semRd(storage, dummyArray, threadBaseLoc, threadOffset,
+                       NUM_LDST);
+    }
+    hipSemaphoreEBOPostLocalPriority(sem, cuID, isWriter, maxSemCount,
+                              gpuLockData->semaphoreBuffers, NUM_CU);
+  }
+}
+
 void invokeAtomicTreeBarrier(float * storage_d, unsigned int * perCUBarriers_d,
                              int numIters)
 {
@@ -851,6 +1484,78 @@ void invokeAtomicTreeBarrier(float * storage_d, unsigned int * perCUBarriers_d,
     // tasks (make sure that the device returned before continuing).
     hipError_t hipErr = hipDeviceSynchronize();
     checkError(hipErr, "hipDeviceSynchronize (kernelAtomicTreeBarrierUniq)");
+  }
+}
+
+void invokeAtomicTreeBarrierSRB(float * storage_d, unsigned int * perCUBarriers_d,
+                                int numIters)
+{
+  // local variable
+  const int blocks = numWGs;
+  const unsigned int numBlocksAtBarr = ((blocks < NUM_CU) ? blocks : NUM_CU);
+  // given the grid size, we can figure out how many WGs there are per CU --
+  // assume all CUs have an identical number of WGs
+  const int numWGs_perCU = (int)ceil((float)blocks / numBlocksAtBarr);
+
+  for (int repeat = 0; repeat < NUM_REPEATS; ++repeat)
+  {
+    kernelAtomicTreeBarrierUniqSRB<<<blocks, NUM_WIS_PER_WG, 0, 0>>>(
+        storage_d, cpuLockData, perCUBarriers_d, numBlocksAtBarr, numWGs_perCU,
+        numIters, NUM_LDST, NUM_CU, MAX_WGS);
+
+    // Blocks until the device has completed all preceding requested
+    // tasks (make sure that the device returned before continuing).
+    hipError_t hipErr = hipDeviceSynchronize();
+
+    checkError(hipErr, "hipDeviceSynchronize (kernelAtomicTreeBarrierUniqSRB)");
+  }
+}
+
+void invokeAtomicTreeBarrierNaiveSRB(float * storage_d,
+                                     unsigned int * perCUBarriers_d,
+                                     int numIters)
+{
+  // local variable
+  const int blocks = numWGs;
+  // in the naive SRB, all WGs join global SRB
+  const unsigned int numBlocksAtBarr = blocks;
+  const int denom = ((blocks < NUM_CU) ? blocks : NUM_CU);
+
+  for (int repeat = 0; repeat < NUM_REPEATS; ++repeat)
+  {
+    kernelAtomicTreeBarrierUniqNaiveSRB<<<blocks, NUM_WIS_PER_WG, 0, 0>>>(
+        storage_d, cpuLockData, numBlocksAtBarr, denom,
+        numIters, NUM_LDST, NUM_CU, MAX_WGS);
+
+    // Blocks until the device has completed all preceding requested
+    // tasks (make sure that the device returned before continuing).
+    hipError_t hipErr = hipDeviceSynchronize();
+
+    checkError(hipErr, "hipDeviceSynchronize (kernelAtomicTreeBarrierUniqNaiveSRB)");
+  }
+}
+
+void invokeAtomicTreeBarrierNaiveAllSRB(float * storage_d,
+                                        unsigned int * perCUBarriers_d,
+                                        int numIters)
+{
+  // local variable
+  const int blocks = numWGs;
+  // in naive all, all threads are joining SRB
+  const unsigned int numThreadsAtBarr = blocks * NUM_WIS_PER_WG;
+  const int denom = ((blocks < NUM_CU) ? blocks : NUM_CU);
+
+  for (int repeat = 0; repeat < NUM_REPEATS; ++repeat)
+  {
+    kernelAtomicTreeBarrierUniqNaiveAllSRB<<<blocks, NUM_WIS_PER_WG, 0, 0>>>(
+        storage_d, cpuLockData, perCUBarriers_d, numThreadsAtBarr, denom,
+        numIters, NUM_LDST, NUM_CU, MAX_WGS);
+
+    // Blocks until the device has completed all preceding requested
+    // tasks (make sure that the device returned before continuing).
+    hipError_t hipErr = hipDeviceSynchronize();
+
+    checkError(hipErr, "hipDeviceSynchronize (kernelAtomicTreeBarrierUniqNaiveAllSRB)");
   }
 }
 
@@ -872,6 +1577,88 @@ void invokeAtomicTreeBarrierLocalExch(float * storage_d,
     hipError_t hipErr = hipDeviceSynchronize();
     checkError(hipErr,
                "hipDeviceSynchronize (kernelAtomicTreeBarrierUniqLockExch)");
+  }
+}
+
+void invokeAtomicTreeBarrierLocalExchSRB(float * storage_d,
+                                         unsigned int * perCUBarriers_d,
+                                         int numIters)
+{
+  // local variable
+  const int blocks = numWGs;
+  const unsigned int numBlocksAtBarr = ((blocks < NUM_CU) ? blocks : NUM_CU);
+  // given the grid size, we can figure out how many WGs there are per CU --
+  // assume all CUs have an identical number of WGs
+  const int numWGs_perCU = (int)ceil((float)blocks / numBlocksAtBarr);
+
+  for (int repeat = 0; repeat < NUM_REPEATS; ++repeat)
+  {
+    kernelAtomicTreeBarrierUniqLocalExchSRB<<<blocks, NUM_WIS_PER_WG, 0, 0>>>(
+        storage_d, cpuLockData, perCUBarriers_d, numBlocksAtBarr, numWGs_perCU,
+        numIters, NUM_LDST, NUM_CU, MAX_WGS);
+
+    // Blocks until the device has completed all preceding requested
+    // tasks (make sure that the device returned before continuing).
+    hipError_t hipErr = hipDeviceSynchronize();
+
+    checkError(hipErr,
+               "hipDeviceSynchronize (kernelAtomicTreeBarrierUniqLockExchSRB)");
+  }
+}
+
+void invokeAtomicTreeBarrierLocalExchNaiveSRB(float * storage_d,
+                                              unsigned int * perCUBarriers_d,
+                                              int numIters)
+{
+  // local variable
+  const int blocks = numWGs;
+  // in the naive SRB, all WGs join global SRB
+  const unsigned int numBlocksAtBarr = blocks;
+  const int denom = ((blocks < NUM_CU) ? blocks : NUM_CU);
+  // given the grid size, we can figure out how many WGs there are per CU --
+  // assume all CUs have an identical number of WGs
+  const int numWGs_perCU = (int)ceil((float)blocks / denom);
+
+  for (int repeat = 0; repeat < NUM_REPEATS; ++repeat)
+  {
+    kernelAtomicTreeBarrierUniqLocalExchNaiveSRB<<<blocks, NUM_WIS_PER_WG, 0, 0>>>(
+        storage_d, cpuLockData, perCUBarriers_d, numBlocksAtBarr, denom,
+        numWGs_perCU, numIters, NUM_LDST, NUM_CU, MAX_WGS);
+
+    // Blocks until the device has completed all preceding requested
+    // tasks (make sure that the device returned before continuing).
+    hipError_t hipErr = hipDeviceSynchronize();
+
+    checkError(hipErr,
+               "hipDeviceSynchronize (kernelAtomicTreeBarrierUniqLocalExchNaiveSRB)");
+  }
+}
+
+void invokeAtomicTreeBarrierLocalExchNaiveAllSRB(float * storage_d,
+                                                 unsigned int * perCUBarriers_d,
+                                                 int numIters)
+{
+  // local variable
+  const int blocks = numWGs;
+  // in naive all, all threads are joining SRB
+  const unsigned int numThreadsAtBarr = blocks * NUM_WIS_PER_WG;
+  const int denom = ((blocks < NUM_CU) ? blocks : NUM_CU);
+  // given the grid size, we can figure out how many WGs there are per CU --
+  // assume all CUs have an identical number of WGs
+  const int numWGs_perCU = (int)ceil((float)blocks / denom);
+
+  for (int repeat = 0; repeat < NUM_REPEATS; ++repeat)
+  {
+    kernelAtomicTreeBarrierUniqLocalExchNaiveAllSRB<<<blocks, NUM_WIS_PER_WG, 0, 0>>>(
+        storage_d, cpuLockData, perCUBarriers_d, numThreadsAtBarr, denom,
+        numWGs_perCU, numIters, NUM_LDST, NUM_CU, MAX_WGS);
+
+    // Blocks until the device has completed all preceding requested
+    // tasks (make sure that the device returned before continuing).
+    hipError_t hipErr = hipDeviceSynchronize();
+
+    checkError(hipErr,
+               "hipDeviceSynchronize (kernelAtomicTreeBarrierUniqLockExchNaiveAllSRB)");
   }
 }
 
@@ -1072,6 +1859,27 @@ void invokeSpinLockSemaphore(hipSemaphore_t sem, float * storage_d,
   }
 }
 
+void invokeSpinLockSemaphorePriority(hipSemaphore_t sem, float * storage_d,
+                                     const int maxVal,
+                                     int numIters, int numStorageLocs)
+{
+  // local variable
+  const int blocks = numWGs;
+
+  for (int repeat = 0; repeat < NUM_REPEATS; ++repeat)
+  {
+    kernelSpinLockSemaphorePriority<<<blocks, NUM_WIS_PER_WG, 0, 0>>>(
+        sem, storage_d, cpuLockData, numStorageLocs, numIters, NUM_LDST,
+        NUM_CU);
+
+    // Blocks until the device has completed all preceding requested
+    // tasks (make sure that the device returned before continuing).
+    hipError_t hipErr = hipDeviceSynchronize();
+
+    checkError(hipErr, "hipDeviceSynchronize (kernelSpinLockSemaphore)");
+  }
+}
+
 void invokeSpinLockSemaphore_uniq(hipSemaphore_t sem, float * storage_d,
                                   const int maxVal, int numIters)
 {
@@ -1109,6 +1917,26 @@ void invokeEBOSemaphore(hipSemaphore_t sem, float * storage_d, const int maxVal,
   }
 }
 
+void invokeEBOSemaphorePriority(hipSemaphore_t sem, float * storage_d, const int maxVal,
+                                int numIters, int numStorageLocs)
+{
+  // local variable
+  const int blocks = numWGs;
+
+  for (int repeat = 0; repeat < NUM_REPEATS; ++repeat)
+  {
+    kernelEBOSemaphorePriority<<<blocks, NUM_WIS_PER_WG, 0, 0>>>(
+        sem, storage_d, cpuLockData, numStorageLocs, numIters, NUM_LDST,
+        NUM_CU);
+
+    // Blocks until the device has completed all preceding requested
+    // tasks (make sure that the device returned before continuing).
+    hipError_t hipErr = hipDeviceSynchronize();
+
+    checkError(hipErr, "hipDeviceSynchronize (kernelEBOSemaphorePriority)");
+  }
+}
+
 void invokeEBOSemaphore_uniq(hipSemaphore_t sem, float * storage_d, 
                              const int maxVal, int numIters)
 {
@@ -1127,6 +1955,25 @@ void invokeEBOSemaphore_uniq(hipSemaphore_t sem, float * storage_d,
   }
 }
 
+void invokeSpinLockSemaphore_uniqPriority(hipSemaphore_t sem, float * storage_d,
+                                          const int maxVal, int numIters)
+{
+  // local variable
+  const int blocks = numWGs;
+
+  for (int repeat = 0; repeat < NUM_REPEATS; ++repeat)
+  {
+    kernelSpinLockSemaphoreUniqPriority<<<blocks, NUM_WIS_PER_WG, 0, 0>>>(
+        sem, storage_d, cpuLockData, numIters, NUM_LDST, NUM_CU);
+
+    // Blocks until the device has completed all preceding requested
+    // tasks (make sure that the device returned before continuing).
+    hipError_t hipErr = hipDeviceSynchronize();
+
+    checkError(hipErr, "hipDeviceSynchronize (kernelSpinLockSemaphoreUniqPriority)");
+  }
+}
+
 int main(int argc, char ** argv)
 {
   if (argc != 5) {
@@ -1135,7 +1982,13 @@ int main(int argc, char ** argv)
     fprintf(stderr, "where:\n");
     fprintf(stderr, "\t<syncPrim>: a string that represents which synchronization primitive to run.\n"
             "\t\tatomicTreeBarrUniq - Atomic Tree Barrier\n"
+            "\t\tatomicTreeBarrUniqSRB - True Sense Reversing Barrier\n"
+            "\t\tatomicTreeBarrUniqNaiveSRB - True Sense Reversing Barrier (naive)\n"
+            "\t\tatomicTreeBarrUniqNaiveAllSRB - True Sense Reversing Barrier (naive all)\n"
             "\t\tatomicTreeBarrUniqLocalExch - Atomic Tree Barrier with local exchange\n"
+            "\t\tatomicTreeBarrUniqLocalExchSRB - True Sense Reversing Barrier with local exchange\n"
+            "\t\tatomicTreeBarrUniqLocalExchNaiveSRB - True Sense Reversing Barrier with local exchange (naive)\n"
+            "\t\tatomicTreeBarrUniqLocalExchNaiveAllSRB - True Sense Reversing Barrier with local exchange (all threads join naively)\n"
             "\t\tlfTreeBarrUniq - Lock-Free Tree Barrier\n"
             "\t\tlfTreeBarrUniqLocalExch - Lock-Free Tree Barrier with local exchange\n"
             "\t\tspinMutex - Spin Lock Mutex\n"
@@ -1150,6 +2003,14 @@ int main(int argc, char ** argv)
             "\t\tspinSemEBO2 - Spin Semaphore with Backoff (Max: 2)\n"
             "\t\tspinSemEBO10 - Spin Semaphore with Backoff (Max: 10)\n"
             "\t\tspinSemEBO120 - Spin Semaphore with Backoff (Max: 120)\n"
+            "\t\tPRspinSem1 - Priority Spin Semaphore (Max: 1)\n"
+            "\t\tPRspinSem2 - Priority Spin Semaphore (Max: 2)\n"
+            "\t\tPRspinSem10 - Priority Spin Semaphore (Max: 10)\n"
+            "\t\tPRspinSem120 - Priority Spin Semaphore (Max: 120)\n"
+            "\t\tPRspinSemEBO1 - Priority Spin Semaphore with Backoff (Max: 1)\n"
+            "\t\tPRspinSemEBO2 - Priority Spin Semaphore with Backoff (Max: 2)\n"
+            "\t\tPRspinSemEBO10 - Priority  Spin Semaphore with Backoff (Max: 10)\n"
+            "\t\tPRspinSemEBO120 - Priority Spin Semaphore with Backoff (Max: 120)\n"
             "\t\tspinMutexUniq - Spin Lock Mutex -- accesses to unique locations per WG\n"
             "\t\tspinMutexEBOUniq - Spin Lock Mutex with Backoff -- accesses to unique locations per WG\n"
             "\t\tsleepMutexUniq - Sleep Mutex -- accesses to unique locations per WG\n"
@@ -1240,7 +2101,10 @@ int main(int argc, char ** argv)
   else if (strcmp(syncPrim_str, "spinSemEBO2") == 0) { syncPrim = 13; }
   else if (strcmp(syncPrim_str, "spinSemEBO10") == 0) { syncPrim = 14; }
   else if (strcmp(syncPrim_str, "spinSemEBO120") == 0) { syncPrim = 15; }
-  // cases 16-19 reserved
+  else if (strcmp(syncPrim_str, "PRspinSem1") == 0) { syncPrim = 16; }
+  else if (strcmp(syncPrim_str, "PRspinSem2") == 0) { syncPrim = 17; }
+  else if (strcmp(syncPrim_str, "PRspinSem10") == 0) { syncPrim = 18; }
+  else if (strcmp(syncPrim_str, "PRspinSem120") == 0) { syncPrim = 19; }
   else if (strcmp(syncPrim_str, "spinMutexUniq") == 0) { syncPrim = 20; }
   else if (strcmp(syncPrim_str, "spinMutexEBOUniq") == 0) { syncPrim = 21; }
   else if (strcmp(syncPrim_str, "sleepMutexUniq") == 0) { syncPrim = 22; }
@@ -1253,7 +2117,18 @@ int main(int argc, char ** argv)
   else if (strcmp(syncPrim_str, "spinSemEBOUniq2") == 0) { syncPrim = 29; }
   else if (strcmp(syncPrim_str, "spinSemEBOUniq10") == 0) { syncPrim = 30; }
   else if (strcmp(syncPrim_str, "spinSemEBOUniq120") == 0) { syncPrim = 31; }
-  // cases 32-36 reserved
+  else if (strcmp(syncPrim_str, "PRspinSemEBO1") == 0) { syncPrim = 32; }
+  else if (strcmp(syncPrim_str, "PRspinSemEBO2") == 0) { syncPrim = 33; }
+  else if (strcmp(syncPrim_str, "PRspinSemEBO10") == 0) { syncPrim = 34; }
+  else if (strcmp(syncPrim_str, "PRspinSemEBO120") == 0) { syncPrim = 35; }
+  // case 36 reserved
+  else if (strcmp(syncPrim_str, "atomicTreeBarrUniqSRB") == 0) { syncPrim = 37; }
+  else if (strcmp(syncPrim_str, "atomicTreeBarrUniqLocalExchSRB") == 0) { syncPrim = 38; }
+  else if (strcmp(syncPrim_str, "atomicTreeBarrUniqNaiveSRB") == 0) { syncPrim = 39; }
+  else if (strcmp(syncPrim_str, "atomicTreeBarrUniqLocalExchNaiveSRB") == 0) { syncPrim = 40; }
+  else if (strcmp(syncPrim_str, "atomicTreeBarrUniqNaiveAllSRB") == 0) { syncPrim = 41; }
+  else if (strcmp(syncPrim_str, "atomicTreeBarrUniqLocalExchNaiveAllSRB") == 0) { syncPrim = 42; }
+  // cases 43-46 reserved
   else
   {
     fprintf(stderr, "ERROR: Unknown synchronization primitive: %s\n",
@@ -1281,7 +2156,7 @@ int main(int argc, char ** argv)
 
   int numLocsMult = 0;
   // barriers and unique semaphores have numWGs WGs accessing unique locations
-  if ((syncPrim < 4) ||
+  if ((syncPrim < 4 || syncPrim >= 37) ||
       ((syncPrim >= 24) && (syncPrim <= 35))) { numLocsMult = numWGs; }
   // The non-unique mutex microbenchmarks, all WGs access the same locations so
   // multiplier is 1
@@ -1407,17 +2282,24 @@ int main(int argc, char ** argv)
       hipSemaphoreCreateEBO  (&eboSem10,       6,   10, NUM_CU);
       break;
     case 15:
-      printf("ebo_sem_%03d_%03d\n", 120, NUM_ITERS); fflush(stdout);
+      printf("prior_ebo_sem_%03d_%03d\n", 120, NUM_ITERS); fflush(stdout);
       hipSemaphoreCreateEBO  (&eboSem120,       7,   120, NUM_CU);
       break;
-    // cases 16-19 reserved
     case 16:
+      printf("prior_spin_lock_sem_%03d_%03d\n", 1, NUM_ITERS); fflush(stdout);
+      hipSemaphoreCreateSpin (&spinSem1,      0,   1, NUM_CU);
       break;
     case 17:
+      printf("prior_spin_lock_sem_%03d_%03d\n", 2, NUM_ITERS); fflush(stdout);
+      hipSemaphoreCreateSpin (&spinSem2,      1,   2, NUM_CU);
       break;
     case 18:
+      printf("prior_spin_lock_sem_%03d_%03d\n", 10, NUM_ITERS); fflush(stdout);
+      hipSemaphoreCreateSpin (&spinSem10,      2,   10, NUM_CU);
       break;
     case 19:
+      printf("prior_spin_lock_sem_%03d_%03d\n", 2, NUM_ITERS); fflush(stdout);
+      hipSemaphoreCreateSpin (&spinSem120,      3,   120, NUM_CU);
       break;
     case 20:
       printf("spin_lock_mutex_uniq_%03d\n", NUM_ITERS); fflush(stdout);
@@ -1467,17 +2349,44 @@ int main(int argc, char ** argv)
       printf("ebo_sem_uniq_%03d_%03d\n", 120, NUM_ITERS); fflush(stdout);
       hipSemaphoreCreateEBO  (&eboSem120_uniq,       19,   120, NUM_CU);
       break;
-    // cases 32-36 reserved
     case 32:
+      printf("prior_ebo_sem_%03d_%03d\n", 1, NUM_ITERS); fflush(stdout);
+      hipSemaphoreCreateEBO  (&eboSem1,       4,   1, NUM_CU);
       break;
     case 33:
+      printf("prior_ebo_sem_%03d_%03d\n", 2, NUM_ITERS); fflush(stdout);
+      hipSemaphoreCreateEBO  (&eboSem2,       5,   2, NUM_CU);
       break;
     case 34:
+      printf("prior_ebo_sem_%03d_%03d\n", 10, NUM_ITERS); fflush(stdout);
+      hipSemaphoreCreateEBO  (&eboSem10,       6,   10, NUM_CU);
       break;
     case 35:
+      printf("prior_ebo_sem_%03d_%03d\n", 120, NUM_ITERS); fflush(stdout);
+      hipSemaphoreCreateEBO  (&eboSem120,       7,   120, NUM_CU);
       break;
+    // case 36 reserved
     case 36:
       break;
+    case 37: // doesn't require any special fields to be created
+      printf("atomic_tree_barrier_SRB_%03d\n", NUM_ITERS); fflush(stdout);
+      break;
+    case 38: // doesn't require any special fields to be created
+      printf("atomic_tree_barrier_localExch_SRB_%03d\n", NUM_ITERS); fflush(stdout);
+      break;
+    case 39: // doesn't require any special fields to be created
+      printf("atomic_tree_barrier_NaiveSRB_%03d\n", NUM_ITERS); fflush(stdout);
+      break;
+    case 40: // doesn't require any special fields to be created
+      printf("atomic_tree_barrier_localExch_NaiveSRB_%03d\n", NUM_ITERS); fflush(stdout);
+      break;
+    case 41: // doesn't require any special fields to be created
+      printf("atomic_tree_barrier_NaiveAllSRB_%03d\n", NUM_ITERS); fflush(stdout);
+      break;
+    case 42: // doesn't require any special fields to be created
+      printf("atomic_tree_barrier_localExch_NaiveAllSRB_%03d\n", NUM_ITERS); fflush(stdout);
+      break;
+    // cases 43 - 46 reserved
     default:
       fprintf(stderr, "ERROR: Trying to run synch prim #%u, but only 0-36 are "
               "supported\n", syncPrim);
@@ -1543,15 +2452,17 @@ int main(int argc, char ** argv)
     case 15: // spin semaphore with backoff (120)
       invokeEBOSemaphore(eboSem120,   storage_d, 120, NUM_ITERS, numStorageLocs);
       break;
-    // cases 16-19 reserved
-    case 16:
+    case 16: // spin semaphore with priority (1)
+      invokeSpinLockSemaphorePriority(spinSem1,   storage_d,   1, NUM_ITERS, numStorageLocs);
       break;
-    case 17:
+    case 17: // spin semaphore with priority (2)
+      invokeSpinLockSemaphorePriority(spinSem2,   storage_d,   2, NUM_ITERS, numStorageLocs);
       break;
-    case 18:
+    case 18: // spin semaphore with priority (10)
+      invokeSpinLockSemaphorePriority(spinSem10,   storage_d,   10, NUM_ITERS, numStorageLocs);
       break;
-    case 19:
-      break;
+    case 19: // spin semaphore with priority (120)
+      invokeSpinLockSemaphorePriority(spinSem120,   storage_d,   120, NUM_ITERS, numStorageLocs);
     case 20: // Spin Lock Mutex (uniq)
       invokeSpinLockMutex_uniq   (spinMutex_uniq,  storage_d, NUM_ITERS);
       break;
@@ -1588,16 +2499,46 @@ int main(int argc, char ** argv)
     case 31: // spin semaphore with backoff (120) (uniq)
       invokeEBOSemaphore_uniq(eboSem120_uniq,   storage_d, 120, NUM_ITERS);
       break;
-    // cases 32-36 reserved
-    case 32:
+    case 32: // spin semaphore with backoff and priority (1)
+      invokeEBOSemaphorePriority(eboSem1,   storage_d,     1, NUM_ITERS, numStorageLocs);
       break;
-    case 33:
+    case 33: // spin semaphore with backoff and priority (2)
+      invokeEBOSemaphorePriority(eboSem2,   storage_d,     2, NUM_ITERS, numStorageLocs);
       break;
-    case 34:
+    case 34: // spin semaphore with backoff and priority (10)
+      invokeEBOSemaphorePriority(eboSem10,   storage_d,   10, NUM_ITERS, numStorageLocs);
       break;
-    case 35:
+    case 35: // spin semaphore with backoff and priority (120)
+      invokeEBOSemaphorePriority(eboSem120,   storage_d, 120, NUM_ITERS, numStorageLocs);
       break;
+    // case 36 reserved
     case 36:
+      break;
+    case 37: // atomic sense reversing tree barrier
+      invokeAtomicTreeBarrierSRB(storage_d, perCUBarriers_d, NUM_ITERS);
+      break;
+    case 38: //atomic sense reversing tree barrier with local exchange
+      invokeAtomicTreeBarrierLocalExchSRB(storage_d, perCUBarriers_d, NUM_ITERS);
+      break;
+    case 39: // atomic sense reversing tree barrier (naive)
+      invokeAtomicTreeBarrierNaiveSRB(storage_d, perCUBarriers_d, NUM_ITERS);
+      break;
+    case 40: //atomic sense reversing tree barrier with local exchange (naive)
+      invokeAtomicTreeBarrierLocalExchNaiveSRB(storage_d, perCUBarriers_d, NUM_ITERS);
+      break;
+    case 41: // atomic sense reversing tree barrier (naive all threads)
+      invokeAtomicTreeBarrierNaiveAllSRB(storage_d, perCUBarriers_d, NUM_ITERS);
+      break;
+    case 42: //atomic sense reversing tree barrier (naive all threads) with local exchange
+      invokeAtomicTreeBarrierLocalExchNaiveAllSRB(storage_d, perCUBarriers_d, NUM_ITERS);
+      break;
+    case 43: // 43 reserved
+      break;
+    case 44: // 44 reserved
+      break;
+    case 45: // 45 reserved
+      break;
+    case 46: // 46 reserved
       break;
     default:
       fprintf(stderr,
@@ -1646,7 +2587,7 @@ int main(int argc, char ** argv)
         CUs and across WGs within an CU, so need to perform both in the golden
         code.
       */
-      if (syncPrim < 4)
+      if (syncPrim < 4 || syncPrim >= 37)
       {
         // Some kernels only access a fraction of the total # of locations,
         // determine how many locations are accessed by each kernel here.
@@ -1664,7 +2605,9 @@ int main(int argc, char ** argv)
 
         // local exchange versions do additional accesses when there are
         // multiple WGs on a CU
-        if ((syncPrim == 1) || (syncPrim == 3))
+        if ((syncPrim == 1) || (syncPrim == 3) || (syncPrim == 38) ||
+            (syncPrim == 40) || (syncPrim == 42) || (syncPrim == 44) ||
+            (syncPrim == 46))
         {
           if (numWGs_perCU > 1)
           {
