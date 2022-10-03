@@ -570,7 +570,7 @@ inline __device__ void hipSemaphoreSpinPostPriority(const hipSemaphore_t sem,
   { 
     acquired = false;
     /*
-    Incrementing priority count whenever a thread block wants to exit 
+    Incrementing priority count whenever a work group wants to exit 
     the Semaphore. A priority count of > 0 will stop blocks trying to enter 
     the semaphore from making an attempt to acquire the lock, reducing contention
     */
@@ -618,7 +618,7 @@ inline __device__ void hipSemaphoreSpinPostPriority(const hipSemaphore_t sem,
     __threadfence();
     // now that we've updated the semaphore count can release the lock
     atomicExch(lock, 0);
-    // Decrement priority as thread block which wanted to exit has relenquished the lock
+    // Decrement priority as work group which wanted to exit has relenquished the lock
     atomicSub(priority, 1);
   }
   __syncthreads();
@@ -785,7 +785,7 @@ inline __device__ void hipSemaphoreSpinPostLocalPriority(const hipSemaphore_t se
   { 
     acquired = false; 
     /*
-    Incrementing priority count whenever a thread block wants to exit 
+    Incrementing priority count whenever a work group wants to exit 
     the Semaphore. A priority count of > 0 will stop blocks trying to enter 
     the semaphore from making an attempt to acquire the lock, reducing contention
     */
@@ -833,7 +833,7 @@ inline __device__ void hipSemaphoreSpinPostLocalPriority(const hipSemaphore_t se
     __threadfence_block();
     // now that we've updated the semaphore count can release the lock
     atomicExch(lock, 0);
-    // Decrement priority as thread block which wanted to exit has relenquished the lock
+    // Decrement priority as work group which wanted to exit has relenquished the lock
     atomicSub(priority, 1);
   }
   __syncthreads();
