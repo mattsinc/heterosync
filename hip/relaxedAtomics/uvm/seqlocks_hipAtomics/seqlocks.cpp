@@ -9,17 +9,17 @@ int main(int argc, char ** argv) {
   int * h_dataArr0 = NULL;
   int * h_dataArr1 = NULL;
   int * h_outArr = NULL;
-  bool useTFs = false;
   const int numRuns = 1;
   int numWGs = 0, wgSize = 0, groupSize_seqlock = 0;
 
-  if (argc != 5) {
-    fprintf(stderr, "./seqlocks <numWGs> <wgSize> <groupSize_seqlock> <useTFs>\n");
+  // Note: the HIP atomic version uses stronger version to enforce ordering
+  // (unlike non-HIP atomic version which provides both options)
+  if (argc != 4) {
+    fprintf(stderr, "./seqlocks <numWGs> <wgSize> <groupSize_seqlock>\n");
     fprintf(stderr, "where:\n");
     fprintf(stderr, "\t<numWGs>: number of thread blocks to launch\n");
     fprintf(stderr, "\t<wgSize>: number of threads in a thread block\n");
     fprintf(stderr, "\t<groupSize_seqlock>: how many WGs share a seqlock\n");
-    fprintf(stderr, "\t<useTFs>: if 1, use weaker version with more fully relaxed atomics and TFs to enforce ordering\n");
     exit(-1);
   }
 
@@ -27,7 +27,6 @@ int main(int argc, char ** argv) {
   numWGs = atoi(argv[1]);
   wgSize = atoi(argv[2]);
   groupSize_seqlock = atoi(argv[3]);
-  useTFs = (atoi(argv[4]) == 1);
 
   int numThrs = (numWGs * wgSize);
   // want to group WGs together into a few seqlocks to reduce contention
@@ -60,19 +59,11 @@ int main(int argc, char ** argv) {
           "Launching kernel - %d runs with %d WGs and %d threads/WG\n",
           numRuns, numWGs, wgSize);
   for (int iter = 0; iter < numRuns; ++iter) {
-    if (useTFs) {
-      hipLaunchKernelGGL(seqlocks_kernel_tfs, dim3(numWGs), dim3(wgSize), 0, 0, h_seqlock,
-                                              h_dataArr0,
-                                              h_dataArr1,
-                                              h_outArr,
-                                              groupSize_seqlock);
-    } else {
-      hipLaunchKernelGGL(seqlocks_kernel, dim3(numWGs), dim3(wgSize), 0, 0, h_seqlock,
-                                          h_dataArr0,
-                                          h_dataArr1,
-                                          h_outArr,
-                                          groupSize_seqlock);
-    }
+    hipLaunchKernelGGL(seqlocks_kernel_strong, dim3(numWGs), dim3(wgSize), 0, 0, h_seqlock,
+                       h_dataArr0,
+                       h_dataArr1,
+                       h_outArr,
+                       groupSize_seqlock);
     hipDeviceSynchronize();
   }
 
