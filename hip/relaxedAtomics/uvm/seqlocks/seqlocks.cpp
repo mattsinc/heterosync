@@ -14,7 +14,7 @@ int main(int argc, char ** argv) {
   int numTBs = 0, tbSize = 0, groupSize_seqlock = 0;
 
   if (argc != 5) {
-    fprintf(stderr, "./seqlocks <numTBs> <tbSize> <groupSize_seqlock> <pageAlign> <useTFs>\n");
+    fprintf(stderr, "./seqlocks <numTBs> <tbSize> <groupSize_seqlock> <useTFs>\n");
     fprintf(stderr, "where:\n");
     fprintf(stderr, "\t<numTBs>: number of thread blocks to launch\n");
     fprintf(stderr, "\t<tbSize>: number of threads in a thread block\n");
