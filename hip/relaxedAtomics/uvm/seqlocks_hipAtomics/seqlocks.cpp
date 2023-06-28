@@ -11,27 +11,27 @@ int main(int argc, char ** argv) {
   int * h_outArr = NULL;
   bool useTFs = false;
   const int numRuns = 1;
-  int numTBs = 0, tbSize = 0, groupSize_seqlock = 0;
+  int numWGs = 0, wgSize = 0, groupSize_seqlock = 0;
 
   if (argc != 5) {
-    fprintf(stderr, "./seqlocks <numTBs> <tbSize> <groupSize_seqlock> <pageAlign> <useTFs>\n");
+    fprintf(stderr, "./seqlocks <numWGs> <wgSize> <groupSize_seqlock> <useTFs>\n");
     fprintf(stderr, "where:\n");
-    fprintf(stderr, "\t<numTBs>: number of thread blocks to launch\n");
-    fprintf(stderr, "\t<tbSize>: number of threads in a thread block\n");
-    fprintf(stderr, "\t<groupSize_seqlock>: how many TBs share a seqlock\n");
+    fprintf(stderr, "\t<numWGs>: number of thread blocks to launch\n");
+    fprintf(stderr, "\t<wgSize>: number of threads in a thread block\n");
+    fprintf(stderr, "\t<groupSize_seqlock>: how many WGs share a seqlock\n");
     fprintf(stderr, "\t<useTFs>: if 1, use weaker version with more fully relaxed atomics and TFs to enforce ordering\n");
     exit(-1);
   }
 
   // parse input args
-  numTBs = atoi(argv[1]);
-  tbSize = atoi(argv[2]);
+  numWGs = atoi(argv[1]);
+  wgSize = atoi(argv[2]);
   groupSize_seqlock = atoi(argv[3]);
   useTFs = (atoi(argv[4]) == 1);
 
-  int numThrs = (numTBs * tbSize);
-  // want to group TBs together into a few seqlocks to reduce contention
-  int numSeqlocks = (numTBs / groupSize_seqlock);
+  int numThrs = (numWGs * wgSize);
+  // want to group WGs together into a few seqlocks to reduce contention
+  int numSeqlocks = (numWGs / groupSize_seqlock);
 
   fprintf(stdout, "Initializing data...\n");
   fprintf(stdout, "...allocating memory.\n");
@@ -57,17 +57,17 @@ int main(int argc, char ** argv) {
   }
 
   fprintf(stdout,
-          "Launching kernel - %d runs with %d TBs and %d threads/TB\n",
-          numRuns, numTBs, tbSize);
+          "Launching kernel - %d runs with %d WGs and %d threads/WG\n",
+          numRuns, numWGs, wgSize);
   for (int iter = 0; iter < numRuns; ++iter) {
     if (useTFs) {
-      hipLaunchKernelGGL(seqlocks_kernel_tfs, dim3(numTBs), dim3(tbSize), 0, 0, h_seqlock,
+      hipLaunchKernelGGL(seqlocks_kernel_tfs, dim3(numWGs), dim3(wgSize), 0, 0, h_seqlock,
                                               h_dataArr0,
                                               h_dataArr1,
                                               h_outArr,
                                               groupSize_seqlock);
     } else {
-      hipLaunchKernelGGL(seqlocks_kernel, dim3(numTBs), dim3(tbSize), 0, 0, h_seqlock,
+      hipLaunchKernelGGL(seqlocks_kernel, dim3(numWGs), dim3(wgSize), 0, 0, h_seqlock,
                                           h_dataArr0,
                                           h_dataArr1,
                                           h_outArr,
