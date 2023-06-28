@@ -202,7 +202,7 @@ __global__ void seqlocks_kernel(unsigned int * seqlock,
 
   // iterate a few times to provide more accesses, reuse, etc.
   for (int i = 0; i < NUM_ITERS; ++i) {
-    // 1/16 TBs is a writer, rest are readers
+    // 1/16 WGs is a writer, rest are readers
     if (blockIdx.x % 16 == 0) {
       writer(seqlock, dataArr0, dataArr1, seqlockLoc, dataLoc, isMasterThread);
     } else {
@@ -230,7 +230,7 @@ __global__ void seqlocks_kernel_tfs(unsigned int * seqlock,
 
   // iterate a few times to provide more accesses, reuse, etc.
   for (int i = 0; i < NUM_ITERS; ++i) {
-    // 1/16 TBs is a writer, rest are readers
+    // 1/16 WGs is a writer, rest are readers
     if (blockIdx.x % 16 == 0) {
       writer_tfs(seqlock, dataArr0, dataArr1, seqlockLoc, dataLoc, isMasterThread);
     } else {
