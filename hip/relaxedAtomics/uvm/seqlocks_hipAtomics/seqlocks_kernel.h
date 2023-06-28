@@ -78,8 +78,8 @@ inline __device__ void writer_strong(unsigned int * seqlock,
     while ((seq0 & 1) ||
 	   // use CAS weak because if we fail we don't need ordering --
 	   // but if we succeed we want ordering
-	   __hip_atomic_compare_exchange_weak(&(seqlock[seqlockLoc]), &seq0_new, seq0+1, __ATOMIC_RELAXED, __ATOMIC_RELAXED, __HIP_MEMORY_SCOPE_AGENT) != seq0) {
-           //(atomicCAS(&(seqlock[seqlockLoc]), seq0, seq0+1) != seq0)) {
+	   //__hip_atomic_compare_exchange_weak(&(seqlock[seqlockLoc]), &seq0_new, seq0+1, __ATOMIC_RELAXED, __ATOMIC_RELAXED, __HIP_MEMORY_SCOPE_AGENT) != seq0) {
+           (atomicCAS(&(seqlock[seqlockLoc]), seq0, seq0+1) != seq0)) {
       // if we failed, wait for a little while before trying again
       sleepFunc(backoff);
       // backoff so don't keep hammering seqlock
