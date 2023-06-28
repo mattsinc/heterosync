@@ -40,8 +40,8 @@ inline __device__ void reader_strong(unsigned int * seqlock,
     __syncthreads();
 
     // stores in between seqlocks are relaxed
-    r1 = __hip_atomic_store(&(dataArr0[dataLoc]), 0, __ATOMIC_RELAXED, __HIP_MEMORY_SCOPE_AGENT);
-    r2 = __hip_atomic_store(&(dataArr1[dataLoc]), 0, __ATOMIC_RELAXED, __HIP_MEMORY_SCOPE_AGENT);
+    /*r1 = */__hip_atomic_store(&(dataArr0[dataLoc]), 0, __ATOMIC_RELAXED, __HIP_MEMORY_SCOPE_AGENT);
+    /*r2 = */__hip_atomic_store(&(dataArr1[dataLoc]), 0, __ATOMIC_RELAXED, __HIP_MEMORY_SCOPE_AGENT);
 
     // need release semantics
     if (isMasterThread) {
