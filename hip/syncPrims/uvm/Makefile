@@ -5,7 +5,7 @@ SRC := $(wildcard *.hip.cpp)
 all: release
 
 release: $(SRC)
-	$(HIP_PATH)/bin/hipcc -DGFX9 --offload-arch=gfx900,gfx906,gfx908,gx90a main.hip.cpp -o $(EXECUTABLE)
+	$(HIP_PATH)/bin/hipcc -DGFX9 --offload-arch=gfx900,gfx906,gfx908,gfx90a main.hip.cpp -o $(EXECUTABLE)
 
 # gfx8 has a different number of bits it uses for sleeps, so compile accordingly
 release-gfx8: $(SRC)
