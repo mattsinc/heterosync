@@ -5,6 +5,17 @@
 extern "C" void __builtin_amdgcn_s_sleep(int);
 
 /*
+  Shared sleep function, but sleep for 0 cycles each time ("leaner" sleep).
+ */
+inline __device__ void sleepFuncZero(int backoff) {
+  int backoffCopy = backoff;
+
+  for (int i = 0; i < backoffCopy; ++i) {
+    __builtin_amdgcn_s_sleep(0);
+  }
+}
+
+/*
   Shared sleep function.  Since s_sleep only takes in consstants (between 1 and 128),
   need code to handle long tail.
  */

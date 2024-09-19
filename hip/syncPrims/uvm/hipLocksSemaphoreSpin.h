@@ -173,6 +173,7 @@ inline __device__ void hipSemaphoreSpinPost(const hipSemaphore_t sem,
   unsigned int * const currCount = semaphoreBuffers + (sem * 4 * NUM_CU);
   unsigned int * const lock = currCount + 1;
   __shared__ bool acquired;
+  int linearBackoff = 0;
 
   if (isMasterThread) { acquired = false; }
   __syncthreads();
@@ -192,7 +193,16 @@ inline __device__ void hipSemaphoreSpinPost(const hipSemaphore_t sem,
         __threadfence();
         acquired = true;
       }
-      else                            { acquired = false; }
+      else {
+        /*
+          In modern GPUs there is often sufficent contention that the
+          non-EBO semaphores need a little (linear) backoff to ensure
+          forward progress.
+         */
+        linearBackoff = ((linearBackoff + 1) % 31);
+        sleepFuncZero(linearBackoff);
+        acquired = false;
+      }
     }
     __syncthreads();
   }
